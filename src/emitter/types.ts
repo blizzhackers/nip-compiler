@@ -53,6 +53,20 @@ export const enum DispatchStrategy {
   ObjectLookup = 'object-lookup',
 }
 
+// Stats readable on unidentified items (base item properties, not magical affixes)
+// Sockets (194) excluded — only visible on normal quality, not on magic/rare/unique/set
+// All other stats return 0 on unid items
+export const BASE_STATS = new Set([
+  31,  // defense / armorclass
+  21,  // mindamage (base)
+  22,  // maxdamage (base)
+  23,  // secondary mindamage
+  24,  // secondary maxdamage
+  72,  // durability
+  73,  // maxdurability
+  70,  // quantity (stackable items)
+]);
+
 export interface EmitterConfig {
   aliases: AliasMapSet;
   includeSourceComments?: boolean;

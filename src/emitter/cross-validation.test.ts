@@ -286,11 +286,10 @@ const TEST_ITEMS: TestItem[] = [
   { label: 'rare ring with prefix 10 and fcr', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10 }, _prefix: 10 } },
   { label: 'rare ring with suffix 20', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), _suffix: 20 } },
   { label: 'rare ring without matching prefix', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10 }, _prefix: 5 } },
-  // --- Unidentified items ---
-  { label: 'unidentified SoJ', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: { [sidKey('itemmaxmanapercent')]: 25 } } },
+  // --- Unidentified items (realistic: magical stats are 0 on unid) ---
   { label: 'unidentified unique ring empty stats', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: {} } },
   { label: 'unidentified rare ring', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), flags: 0, stats: {} } },
-  { label: 'unidentified Mara', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), flags: 0, stats: { [sidKey('strength')]: 5, [sidKey('fireresist')]: 30 } } },
+  { label: 'unidentified unique amulet', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), flags: 0, stats: {} } },
   // --- No match ---
   { label: 'normal ring', mock: { classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') } },
   { label: 'random unknown classid', mock: { classid: 999, quality: qid('normal'), itemType: 99 } },

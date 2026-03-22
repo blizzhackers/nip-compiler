@@ -293,14 +293,15 @@ describe('E2E: kolton.nip with real aliases', () => {
       assert.strictEqual(result.result, -1);
     });
 
-    it('returns 1 for unidentified unique ring with matching stats', () => {
+    it('returns -1 for unidentified unique ring even with magical stats set (not readable unid)', () => {
       const item = makeItem({
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
-        flags: 0, // not identified, but stats still match (in theory)
+        flags: 0, // not identified — magical stats like itemmaxmanapercent aren't readable
         stats: { [sidKey('itemmaxmanapercent')]: 25 },
       });
       const result = mod.checkItem(item, true);
-      assert.strictEqual(result.result, 1);
+      // Smarter than original NTIP: skips magical stat checks on unid items
+      assert.strictEqual(result.result, -1);
     });
   });
 

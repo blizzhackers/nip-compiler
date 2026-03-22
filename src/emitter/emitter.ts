@@ -7,7 +7,7 @@ interface FlagGroup {
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
-import { AliasMapSet, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
+import { AliasMapSet, BASE_STATS, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
 import { formatJs } from './formatter.js';
 import { SourceMapBuilder } from './sourcemap.js';
 
@@ -319,29 +319,67 @@ export class Emitter {
     // Group consecutive rules by shared flag residual to avoid repeated getFlag calls
     const groups = this.groupByFlagResidual(alive);
 
-    // Emit all rules — stat checks run even on unid items (some stats like defense are readable)
-    let hasStatRules = false;
-    for (const group of groups) {
-      if (group.flagCondition) {
-        lines.push(`if(${group.flagCondition}){`);
-        for (const rule of group.rules) {
-          if (isTier) this.emitTierRule(lines, rule.stripped, this.currentTierField, hoisted);
-          else { this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted); if (rule.stripped.statExpr) hasStatRules = true; }
+    if (isTier) {
+      // Tier functions: no unid optimization, just emit all rules
+      for (const group of groups) {
+        if (group.flagCondition) {
+          lines.push(`if(${group.flagCondition}){`);
+          for (const rule of group.rules) this.emitTierRule(lines, rule.stripped, this.currentTierField, hoisted);
+          lines.push('}');
+        } else {
+          for (const rule of group.rules) this.emitTierRule(lines, rule.original, this.currentTierField, hoisted);
         }
-        lines.push('}');
-      } else {
-        for (const rule of group.rules) {
-          if (isTier) this.emitTierRule(lines, rule.original, this.currentTierField, hoisted);
-          else { this.emitCheckRule(lines, rule.original, mqSources, true, hoisted); if (rule.original.statExpr) hasStatRules = true; }
+      }
+      return;
+    }
+
+    // checkItem: split rules by base-stat vs magical-only for unid optimization
+    let hasMagicalRules = false;
+    let firstMagicalSource: string | null = null;
+
+    for (const group of groups) {
+      const baseRules: typeof group.rules = [];
+      const magicalRules: typeof group.rules = [];
+
+      for (const rule of group.rules) {
+        const effective = group.flagCondition ? rule.stripped : rule.original;
+        if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
+          magicalRules.push(rule);
+          if (!firstMagicalSource) firstMagicalSource = effective.source;
+          hasMagicalRules = true;
+        } else {
+          baseRules.push(rule);
+        }
+      }
+
+      // Base-stat rules always run (defense, damage, etc. visible on unid)
+      if (baseRules.length > 0) {
+        if (group.flagCondition) {
+          lines.push(`if(${group.flagCondition}){`);
+          for (const rule of baseRules) this.emitCheckRule(lines, group.flagCondition ? rule.stripped : rule.original, mqSources, true, hoisted);
+          lines.push('}');
+        } else {
+          for (const rule of baseRules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
+        }
+      }
+
+      // Magical-only rules wrapped in if(_id) — skip getStatEx calls on unid
+      if (magicalRules.length > 0) {
+        if (group.flagCondition) {
+          lines.push(`if(${group.flagCondition}&&_id){`);
+          for (const rule of magicalRules) this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted);
+          lines.push('}');
+        } else {
+          lines.push('if(_id){');
+          for (const rule of magicalRules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
+          lines.push('}');
         }
       }
     }
-    // One maybe at the end — if no stat matched and item is unid, mark as "needs identification"
-    if (!isTier && hasStatRules) {
-      const firstStatRule = alive.find(r => r.statExpr);
-      if (firstStatRule) {
-        lines.push(`if(!_id)${this.emitMaybe(firstStatRule.source)}`);
-      }
+
+    // Maybe: if unid and had magical rules, mark as "needs identification"
+    if (hasMagicalRules && firstMagicalSource) {
+      lines.push(`if(!_id)${this.emitMaybe(firstMagicalSource)}`);
     }
   }
 
@@ -467,6 +505,35 @@ export class Emitter {
       return [...this.flattenOr(expr.left), ...this.flattenOr(expr.right)];
     }
     return [expr];
+  }
+
+  private usesMagicalStatsOnly(expr: ExprNode | null): boolean {
+    if (!expr) return false;
+    const statIds = new Set<number>();
+    this.collectStatNumbers(expr, statIds);
+    if (statIds.size === 0) return false;
+    for (const id of statIds) {
+      if (BASE_STATS.has(id)) return false;
+    }
+    return true;
+  }
+
+  private collectStatNumbers(expr: ExprNode, ids: Set<number>): void {
+    if (expr.kind === NodeKind.KeywordExpr) {
+      const stat = this.config.aliases.stat[expr.name];
+      if (stat !== undefined) {
+        ids.add(Array.isArray(stat) ? stat[0] : stat);
+      } else {
+        const num = Number(expr.name);
+        if (!isNaN(num)) ids.add(num);
+        else if (expr.name.includes(',')) ids.add(Number(expr.name.split(',')[0]));
+      }
+    } else if (expr.kind === NodeKind.BinaryExpr) {
+      this.collectStatNumbers(expr.left, ids);
+      this.collectStatNumbers(expr.right, ids);
+    } else if (expr.kind === NodeKind.UnaryExpr) {
+      this.collectStatNumbers(expr.operand, ids);
+    }
   }
 
   private countStatFreq(expr: ExprNode, freq: Map<string, number>): void {
