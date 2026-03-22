@@ -154,6 +154,7 @@ export class Emitter {
     lines.push('function checkItem(item,verbose){');
     lines.push('var identified=item.getFlag(16);');
     lines.push('var result=0;_si=-1;');
+    lines.push('function _m(i){_si=i;if(verbose){var r=_s[i];return{result:1,file:_f[r[0]],line:r[1]};}return 1;}');
 
     if (this.useObjectLookup) {
       this.emitLookupDispatch(lines, plan);
@@ -223,7 +224,7 @@ export class Emitter {
       lines.push(`var _fn=${tableName}[${keyExpr}];`);
       lines.push('if(_fn){');
       lines.push('var _r=_fn(item,identified);');
-      lines.push('if(_r===1){if(verbose){var _e=_s[_si];return{result:1,file:_f[_e[0]],line:_e[1]};}return 1;}');
+      lines.push('if(_r===1){return _m(_si);}');
       lines.push('if(_r===-1){result=-1;}');
       lines.push('}');
     };
@@ -422,7 +423,7 @@ export class Emitter {
     if (this.useObjectLookup && this.emittingHandler) {
       return `_si=${id};return 1;`;
     }
-    return `_si=${id};if(verbose){var _r=_s[${id}];return{result:1,file:_f[_r[0]],line:_r[1]};}return 1;`;
+    return `return _m(${id});`;
   }
 
   private emitMaybe(source: string): string {
