@@ -366,6 +366,59 @@ describe('Lexer', () => {
     });
   });
 
+  describe('scientific notation', () => {
+    it('tokenizes integer scientific notation', () => {
+      const tokens = new Lexer('10e10').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Number);
+      assert.strictEqual(tokens[0].value, '10e10');
+    });
+
+    it('tokenizes decimal scientific notation', () => {
+      const tokens = new Lexer('1.5e3').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Number);
+      assert.strictEqual(tokens[0].value, '1.5e3');
+    });
+
+    it('tokenizes scientific notation with positive exponent', () => {
+      const tokens = new Lexer('2e+5').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Number);
+      assert.strictEqual(tokens[0].value, '2e+5');
+    });
+
+    it('tokenizes scientific notation with negative exponent', () => {
+      const tokens = new Lexer('3e-2').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Number);
+      assert.strictEqual(tokens[0].value, '3e-2');
+    });
+  });
+
+  describe('dot in identifiers', () => {
+    it('tokenizes me.diff as single identifier', () => {
+      const tokens = new Lexer('me.diff').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Identifier);
+      assert.strictEqual(tokens[0].value, 'me.diff');
+    });
+
+    it('tokenizes item.getStatEx as single identifier', () => {
+      const tokens = new Lexer('item.getStatEx').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Identifier);
+      assert.strictEqual(tokens[0].value, 'item.getStatEx');
+    });
+
+    it('tokenizes me.act as single identifier', () => {
+      const tokens = new Lexer('me.act').tokenize();
+      assert.strictEqual(tokens[0].type, TokenType.Identifier);
+      assert.strictEqual(tokens[0].value, 'me.act');
+    });
+  });
+
+  describe('comma token', () => {
+    it('tokenizes comma as Comma', () => {
+      const types = tokenTypes(',');
+      assert.deepStrictEqual(types, [TokenType.Comma, TokenType.EOF]);
+    });
+  });
+
   describe('full nip lines', () => {
     it('tokenizes a complete line with all sections', () => {
       const input = '[name] == ring && [quality] == unique # [dexterity] == 20 && [tohit] == 250 // Perfect Raven Frost';

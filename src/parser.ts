@@ -328,9 +328,13 @@ export class Parser {
 
   private parseKeyword(): KeywordExprNode {
     const open = this.expect(TokenType.LeftBracket);
-    // Allow [identifier], [number], and [number,number] (stat ID with param)
+    // Allow [identifier], [number], [number,number], and [] (always-false toggle)
     let name: string;
-    if (this.check(TokenType.Identifier)) {
+    if (this.check(TokenType.RightBracket)) {
+      // [] = disabled rule, emits as always-false
+      this.advance();
+      return { kind: NodeKind.KeywordExpr, name: '', loc: { pos: open.pos, line: open.line, col: open.col } };
+    } else if (this.check(TokenType.Identifier)) {
       name = this.advance().value.toLowerCase();
     } else if (this.check(TokenType.Number)) {
       name = this.advance().value;

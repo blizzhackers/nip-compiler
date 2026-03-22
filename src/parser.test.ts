@@ -482,6 +482,48 @@ describe('Parser', () => {
     });
   });
 
+  describe('numeric stat keywords', () => {
+    it('parses [188] >= 1 with numeric keyword name', () => {
+      const node = parser.parseLine('[188] >= 1');
+      const expr = node.property!.expr;
+      assertBinary(expr, '>=');
+      assertKeyword(expr.left, '188');
+      assertNumber(expr.right, 1);
+    });
+
+    it('parses [83,1] >= 1 with two-param keyword name', () => {
+      const node = parser.parseLine('[83,1] >= 1');
+      const expr = node.property!.expr;
+      assertBinary(expr, '>=');
+      assertKeyword(expr.left, '83,1');
+      assertNumber(expr.right, 1);
+    });
+  });
+
+  describe('preprocessing', () => {
+    it('converts item.getStatEx(93) to [93]', () => {
+      assert.strictEqual(Parser.preprocess('item.getStatEx(93)'), '[93]');
+    });
+
+    it('converts item.getStatEx(83,1) to [83,1]', () => {
+      assert.strictEqual(Parser.preprocess('item.getStatEx(83,1)'), '[83,1]');
+    });
+  });
+
+  describe('me.diff in expressions', () => {
+    it('parses me.diff == 0 && [type] == bow', () => {
+      const node = parser.parseLine('me.diff == 0 && [type] == bow');
+      const expr = node.property!.expr;
+      assertBinary(expr, '&&');
+      assertBinary(expr.left, '==');
+      assertIdent((expr.left as BinaryExprNode).left, 'me.diff');
+      assertNumber((expr.left as BinaryExprNode).right, 0);
+      assertBinary(expr.right, '==');
+      assertKeyword((expr.right as BinaryExprNode).left, 'type');
+      assertIdent((expr.right as BinaryExprNode).right, 'bow');
+    });
+  });
+
   describe('error handling', () => {
     it('throws on missing right bracket', () => {
       assert.throws(() => parser.parseLine('[name == ring'), ParseError);
@@ -515,8 +557,11 @@ describe('Parser', () => {
       assert.ok(node.property);
     });
 
-    it('throws on empty brackets', () => {
-      assert.throws(() => parser.parseLine('[] == ring'), ParseError);
+    it('parses empty brackets as always-false (disabled rule)', () => {
+      const node = parser.parseLine('[] > 0');
+      const expr = node.property!.expr;
+      assertBinary(expr, '>');
+      assertKeyword(expr.left, '');
     });
 
     it('throws on double operator', () => {

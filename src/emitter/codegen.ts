@@ -119,12 +119,16 @@ export class CodeGen {
   }
 
   private emitPropertyKeyword(name: string): string {
+    if (name === '') return '0';
     const mapped = PROPERTY_MAP[name];
     if (!mapped) throw new Error(`Unknown property keyword: ${name}`);
     return mapped;
   }
 
   private emitStatKeyword(name: string, hoisted: Map<number | string, string> | null): string {
+    // [] empty keyword = disabled rule, always 0
+    if (name === '') return '0';
+
     const stat = this.aliases.stat[name];
 
     // Numeric stat ID: [218] → getStatEx(218), [83,1] → getStatEx(83,1)
