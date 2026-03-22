@@ -106,6 +106,12 @@ function createOriginalNTIP(): { addLine: (line: string, file?: string) => void;
   };
 }
 
+const HELPERS = {
+  checkQuantityOwned: () => 0,
+  me: { charlvl: 90, ladder: 1, playertype: 0, gametype: 1, realm: 'europe' },
+  getBaseStat: () => 0,
+};
+
 function createOurEmitter(nipLines: string[], filename: string, strategy?: DispatchStrategy) {
   const content = nipLines.join('\n');
   const file = parser.parseFile(content, filename);
@@ -113,11 +119,19 @@ function createOurEmitter(nipLines: string[], filename: string, strategy?: Dispa
   const emitter = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: strategy });
   const js = emitter.emit([file]);
   const factory = eval(js);
-  return factory({
-    checkQuantityOwned: () => 0,
-    me: { charlvl: 90, ladder: 1, playertype: 0, gametype: 1, realm: 'europe' },
-    getBaseStat: () => 0,
-  });
+  return factory(HELPERS);
+}
+
+function createOurEmitterInVM(nipLines: string[], filename: string, strategy?: DispatchStrategy) {
+  const content = nipLines.join('\n');
+  const file = parser.parseFile(content, filename);
+  binder.bindFile(file);
+  const emitter = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: strategy });
+  const js = emitter.emit([file]);
+  const ctx: Record<string, any> = { helpers: HELPERS };
+  vm.createContext(ctx);
+  const factory = vm.runInContext(js, ctx, { filename: 'emitted.js' });
+  return factory(HELPERS);
 }
 
 const TEST_LINES = [
@@ -312,10 +326,10 @@ describe('Cross-validation: our emitter vs original NTIP', () => {
   });
 });
 
-describe('Benchmark: switch vs object-lookup vs original', () => {
+describe('Benchmark: fair comparison (all in VM)', () => {
   let original: ReturnType<typeof createOriginalNTIP>;
-  let switchMod: ReturnType<typeof createOurEmitter>;
-  let lookupMod: ReturnType<typeof createOurEmitter>;
+  let switchVM: ReturnType<typeof createOurEmitter>;
+  let lookupVM: ReturnType<typeof createOurEmitter>;
   let items: ReturnType<typeof makeItem>[];
 
   before(() => {
@@ -328,41 +342,44 @@ describe('Benchmark: switch vs object-lookup vs original', () => {
     for (const line of koltonLines) {
       try { original.addLine(line, 'kolton.nip'); } catch {}
     }
-    switchMod = createOurEmitter(koltonLines, 'kolton.nip', DispatchStrategy.Switch);
-    lookupMod = createOurEmitter(koltonLines, 'kolton.nip', DispatchStrategy.ObjectLookup);
+    switchVM = createOurEmitterInVM(koltonLines, 'kolton.nip', DispatchStrategy.Switch);
+    lookupVM = createOurEmitterInVM(koltonLines, 'kolton.nip', DispatchStrategy.ObjectLookup);
 
     items = TEST_ITEMS.map(t => makeItem(t.mock));
 
-    // Verify object-lookup produces same results as switch
+    // Verify VM versions produce same results
     for (const item of items) {
-      const sw = switchMod.checkItem(item);
-      const lu = lookupMod.checkItem(item);
-      if (sw !== lu) throw new Error(`Strategy mismatch for item: switch=${sw}, lookup=${lu}`);
+      const orig = original.checkItem(item);
+      const sw = switchVM.checkItem(item);
+      const lu = lookupVM.checkItem(item);
+      if (sw !== orig) throw new Error(`Switch VM mismatch: switch=${sw}, original=${orig}`);
+      if (lu !== orig) throw new Error(`Lookup VM mismatch: lookup=${lu}, original=${orig}`);
     }
   });
 
-  it('benchmarks all three strategies', () => {
+  it('benchmarks all three in VM (apples-to-apples)', () => {
     const iterations = 10000;
     const totalChecks = iterations * items.length;
 
-    function bench(name: string, fn: () => void): number {
-      // Warm up
+    function bench(fn: () => void): number {
       fn();
       const start = performance.now();
       for (let i = 0; i < iterations; i++) fn();
       return performance.now() - start;
     }
 
-    const elapsedOrig = bench('original', () => { for (const item of items) original.checkItem(item); });
-    const elapsedSwitch = bench('switch', () => { for (const item of items) switchMod.checkItem(item); });
-    const elapsedLookup = bench('lookup', () => { for (const item of items) lookupMod.checkItem(item); });
+    const elapsedOrig = bench(() => { for (const item of items) original.checkItem(item); });
+    const elapsedSwitch = bench(() => { for (const item of items) switchVM.checkItem(item); });
+    const elapsedLookup = bench(() => { for (const item of items) lookupVM.checkItem(item); });
 
     const fmt = (ms: number) => {
       const ops = Math.round(totalChecks / (ms / 1000));
       return `${ms.toFixed(1)}ms (${ops.toLocaleString()} ops/s)`;
     };
 
-    console.log(`  Original NTIP (VM):    ${fmt(elapsedOrig)}`);
+    console.log('');
+    console.log(`  All running in VM (fair comparison):`);
+    console.log(`  Original NTIP:         ${fmt(elapsedOrig)}`);
     console.log(`  Switch dispatch:       ${fmt(elapsedSwitch)}`);
     console.log(`  Object lookup:         ${fmt(elapsedLookup)}`);
     console.log(`  Switch vs original:    ${(elapsedOrig / elapsedSwitch).toFixed(1)}x`);
