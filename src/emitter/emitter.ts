@@ -16,8 +16,10 @@ export class Emitter {
   private grouper: Grouper;
   private codegen: CodeGen;
   private comments: boolean;
-  private sourceTable: string[] = [];
+  private sourceTable: [number, number][] = [];
   private sourceIdMap = new Map<string, number>();
+  private fileTable: string[] = [];
+  private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
   private emittingHandler = false;
 
@@ -28,12 +30,22 @@ export class Emitter {
     this.comments = config.includeSourceComments ?? true;
   }
 
+  private getFileId(filename: string): number {
+    let id = this.fileIdMap.get(filename);
+    if (id === undefined) {
+      id = this.fileTable.length;
+      this.fileTable.push(filename);
+      this.fileIdMap.set(filename, id);
+    }
+    return id;
+  }
+
   private getSourceId(source: string): number {
     let id = this.sourceIdMap.get(source);
     if (id === undefined) {
       id = this.sourceTable.length;
       const [file, lineNum] = source.split('#');
-      this.sourceTable.push(`"${file}",${lineNum}`);
+      this.sourceTable.push([this.getFileId(file), parseInt(lineNum)]);
       this.sourceIdMap.set(source, id);
     }
     return id;
@@ -42,6 +54,8 @@ export class Emitter {
   emit(files: NipFileNode[]): string {
     this.sourceTable = [];
     this.sourceIdMap.clear();
+    this.fileTable = [];
+    this.fileIdMap.clear();
 
     const allLines = files.flatMap(f =>
       f.lines
@@ -82,12 +96,12 @@ export class Emitter {
     lines.push('');
     lines.push(this.emitTierFunction('getMercTier', 'mercTierExpr', plan));
     lines.push('');
-    // Source table — emitted after all rules so all IDs are collected
-    // _s[id] = [file, line]
-    const srcLine = 'var _s=[' + this.sourceTable.map(s => `[${s}]`).join(',') + '];';
-    // Insert after the helpers, before checkItem
+    // File table + source table — emitted after all rules so all IDs are collected
+    // _f=["kolton.nip","gold.nip"]; _s=[[fileIdx,line],...]
+    const fileLine = 'var _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];';
+    const srcLine = 'var _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];';
     const insertIdx = lines.indexOf('') + 1;
-    lines.splice(insertIdx, 0, srcLine);
+    lines.splice(insertIdx, 0, fileLine, srcLine);
 
     lines.push('return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
     lines.push('})');
@@ -153,7 +167,7 @@ export class Emitter {
       }
     }
 
-    lines.push('if(verbose){var _e=_si>=0?_s[_si]:null;return{result:result,file:_e?_e[0]:null,line:_e?_e[1]:0};}');
+    lines.push('if(verbose){var _e=_si>=0?_s[_si]:null;return{result:result,file:_e?_f[_e[0]]:null,line:_e?_e[1]:0};}');
     lines.push('return result;');
     lines.push('}');
     return lines.join('\n');
@@ -209,7 +223,7 @@ export class Emitter {
       lines.push(`var _fn=${tableName}[${keyExpr}];`);
       lines.push('if(_fn){');
       lines.push('var _r=_fn(item,identified);');
-      lines.push('if(_r===1){if(verbose){var _e=_s[_si];return{result:1,file:_e[0],line:_e[1]};}return 1;}');
+      lines.push('if(_r===1){if(verbose){var _e=_s[_si];return{result:1,file:_f[_e[0]],line:_e[1]};}return 1;}');
       lines.push('if(_r===-1){result=-1;}');
       lines.push('}');
     };
@@ -408,7 +422,7 @@ export class Emitter {
     if (this.useObjectLookup && this.emittingHandler) {
       return `_si=${id};return 1;`;
     }
-    return `_si=${id};if(verbose){var _r=_s[${id}];return{result:1,file:_r[0],line:_r[1]};}return 1;`;
+    return `_si=${id};if(verbose){var _r=_s[${id}];return{result:1,file:_f[_r[0]],line:_r[1]};}return 1;`;
   }
 
   private emitMaybe(source: string): string {
