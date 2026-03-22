@@ -77,7 +77,7 @@ export class Emitter {
       lines.push('var _mq=[');
       for (const mq of mqRules) {
         const propJs = mq.line.property
-          ? `function(i){return ${this.codegen.emitPropertyExpr(mq.line.property.expr)};}`
+          ? `function(i){return ${this.codegen.emitStandalonePropertyExpr(mq.line.property.expr)};}`
           : 'null';
         const statJs = mq.line.stats
           ? `function(i){return ${this.codegen.emitStatExpr(mq.line.stats.expr)};}`

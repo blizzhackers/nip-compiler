@@ -26,6 +26,20 @@ const PROPERTY_MAP: Record<string, string> = {
   asia: '(me.realm.toLowerCase()==="asia")',
 };
 
+// Standalone property map — for functions that receive their own `i` parameter
+// (e.g., _mq prop/stat functions called by checkQuantityOwned)
+const STANDALONE_PROPERTY_MAP: Record<string, string> = {
+  ...PROPERTY_MAP,
+  classid: 'i.classid',
+  name: 'i.classid',
+  type: 'i.itemType',
+  quality: 'i.quality',
+  wsm: 'getBaseStat("items",i.classid,"speed")',
+  weaponspeed: 'getBaseStat("items",i.classid,"speed")',
+  minimumsockets: 'getBaseStat("items",i.classid,"gemsockets")',
+  '2handed': 'getBaseStat("items",i.classid,"2handed")',
+};
+
 const CALLABLE_KEYWORDS = new Set(['flag', 'prefix', 'suffix']);
 const CALLABLE_FN: Record<string, string> = {
   flag: 'i.getFlag',
@@ -38,6 +52,10 @@ export class CodeGen {
 
   emitPropertyExpr(expr: ExprNode): string {
     return this.emitExpr(expr, 'property', null);
+  }
+
+  emitStandalonePropertyExpr(expr: ExprNode): string {
+    return this.emitExpr(expr, 'standalone', null);
   }
 
   emitStatExpr(expr: ExprNode): string {
@@ -56,7 +74,7 @@ export class CodeGen {
 
   private emitExpr(
     expr: ExprNode,
-    section: 'property' | 'stat',
+    section: 'property' | 'stat' | 'standalone',
     hoisted: Map<number | string, string> | null,
     comparisonKeyword?: string,
   ): string {
@@ -75,6 +93,9 @@ export class CodeGen {
         if (section === 'property') {
           return this.emitPropertyKeyword(expr.name);
         }
+        if (section === 'standalone') {
+          return this.emitPropertyKeyword(expr.name, true);
+        }
         return this.emitStatKeyword(expr.name, hoisted);
 
       case NodeKind.UnaryExpr:
@@ -87,11 +108,11 @@ export class CodeGen {
 
   private emitBinary(
     expr: BinaryExprNode,
-    section: 'property' | 'stat',
+    section: 'property' | 'stat' | 'standalone',
     hoisted: Map<number | string, string> | null,
   ): string {
     // Special: [flag/prefix/suffix] == value → item.getFlag(value) / !item.getFlag(value)
-    if (section === 'property' && expr.left.kind === NodeKind.KeywordExpr
+    if ((section === 'property' || section === 'standalone') && expr.left.kind === NodeKind.KeywordExpr
       && CALLABLE_KEYWORDS.has(expr.left.name)
       && (expr.op === '==' || expr.op === '!=')) {
       const fn = CALLABLE_FN[expr.left.name];
@@ -105,7 +126,7 @@ export class CodeGen {
     }
 
     // Resolve RHS identifiers when LHS is a property keyword comparison
-    if (section === 'property' && expr.left.kind === NodeKind.KeywordExpr
+    if ((section === 'property' || section === 'standalone') && expr.left.kind === NodeKind.KeywordExpr
       && isComparison(expr.op)) {
       const left = this.emitExpr(expr.left, section, hoisted);
       const right = this.emitExpr(expr.right, section, hoisted, expr.left.name);
@@ -118,9 +139,10 @@ export class CodeGen {
     return `(${left}${op}${right})`;
   }
 
-  private emitPropertyKeyword(name: string): string {
+  private emitPropertyKeyword(name: string, standalone = false): string {
     if (name === '') return '0';
-    const mapped = PROPERTY_MAP[name];
+    const map = standalone ? STANDALONE_PROPERTY_MAP : PROPERTY_MAP;
+    const mapped = map[name];
     if (!mapped) throw new Error(`Unknown property keyword: ${name}`);
     return mapped;
   }
