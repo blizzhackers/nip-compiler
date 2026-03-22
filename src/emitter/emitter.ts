@@ -1,0 +1,303 @@
+import { NipFileNode } from '../types.js';
+import { Analyzer } from './analyzer.js';
+import { Grouper } from './grouper.js';
+import { CodeGen } from './codegen.js';
+import { AliasMapSet, DispatchPlan, EmitterConfig, GroupedRule } from './types.js';
+
+export class Emitter {
+  private analyzer: Analyzer;
+  private grouper: Grouper;
+  private codegen: CodeGen;
+  private comments: boolean;
+
+  constructor(private config: EmitterConfig) {
+    this.analyzer = new Analyzer(config.aliases);
+    this.grouper = new Grouper(config.aliases);
+    this.codegen = new CodeGen(config.aliases);
+    this.comments = config.includeSourceComments ?? true;
+  }
+
+  emit(files: NipFileNode[]): string {
+    const allLines = files.flatMap(f =>
+      f.lines
+        .filter(l => l.property || l.stats)
+        .map((l, i) => this.analyzer.analyze(l, i, f.filename))
+    );
+
+    const plan = this.grouper.group(allLines);
+    const lines: string[] = [];
+
+    lines.push('(function(helpers){');
+    lines.push('var checkQuantityOwned=helpers.checkQuantityOwned;');
+    lines.push('var me=helpers.me;');
+    lines.push('var getBaseStat=helpers.getBaseStat;');
+    lines.push('');
+
+    // MaxQuantity helper references
+    const mqRules = allLines.filter(a => a.maxQuantity !== null);
+    if (mqRules.length > 0) {
+      lines.push('var _mq=[');
+      for (const mq of mqRules) {
+        const propJs = mq.line.property
+          ? `function(item){return ${this.codegen.emitPropertyExpr(mq.line.property.expr)};}`
+          : 'null';
+        const statJs = mq.line.stats
+          ? `function(item){return ${this.codegen.emitStatExpr(mq.line.stats.expr)};}`
+          : 'null';
+        lines.push(`{prop:${propJs},stat:${statJs},max:${mq.maxQuantity}},`);
+      }
+      lines.push('];');
+      lines.push('');
+    }
+
+    lines.push(this.emitCheckItem(plan, mqRules.map(m => m.source)));
+    lines.push('');
+    lines.push(this.emitTierFunction('getTier', 'tier', plan));
+    lines.push('');
+    lines.push(this.emitTierFunction('getMercTier', 'mercTier', plan));
+    lines.push('');
+    lines.push('return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
+    lines.push('})');
+
+    return lines.join('\n');
+  }
+
+  private emitCheckItem(plan: DispatchPlan, mqSources: string[]): string {
+    const lines: string[] = [];
+    lines.push('function checkItem(item){');
+    lines.push('var identified=item.getFlag(16);');
+    lines.push('var result=0,line=null;');
+
+    if (plan.classidGroups.size > 0) {
+      lines.push('switch(item.classid){');
+      for (const [classid, qualityMap] of plan.classidGroups) {
+        lines.push(`case ${classid}:{`);
+        this.emitQualityDispatch(lines, qualityMap, mqSources, false);
+        lines.push('break;}');
+      }
+      lines.push('}');
+    }
+
+    if (plan.typeGroups.size > 0) {
+      lines.push('switch(item.itemType){');
+      for (const [type, qualityMap] of plan.typeGroups) {
+        lines.push(`case ${type}:{`);
+        this.emitQualityDispatch(lines, qualityMap, mqSources, false);
+        lines.push('break;}');
+      }
+      lines.push('}');
+    }
+
+    if (plan.catchAll.length > 0) {
+      for (const rule of plan.catchAll) {
+        this.emitCheckRule(lines, rule, mqSources, false);
+      }
+    }
+
+    lines.push('return{result:result,line:line};');
+    lines.push('}');
+    return lines.join('\n');
+  }
+
+  private emitQualityDispatch(
+    lines: string[],
+    qualityMap: Map<number | null, GroupedRule[]>,
+    mqSources: string[],
+    isTier: boolean,
+  ): void {
+    const fixedQualities = [...qualityMap.entries()].filter(([q]) => q !== null);
+    const anyQuality = qualityMap.get(null);
+
+    if (fixedQualities.length > 0) {
+      lines.push('switch(item.quality){');
+      for (const [quality, rules] of fixedQualities) {
+        lines.push(`case ${quality}:{`);
+        this.emitHoistedGroup(lines, rules, mqSources, isTier);
+        lines.push('break;}');
+      }
+      lines.push('}');
+    }
+
+    if (anyQuality && anyQuality.length > 0) {
+      this.emitHoistedGroup(lines, anyQuality, mqSources, isTier);
+    }
+  }
+
+  private emitHoistedGroup(
+    lines: string[],
+    rules: GroupedRule[],
+    mqSources: string[],
+    isTier: boolean,
+  ): void {
+    // Collect stat frequencies for hoisting
+    const statFreq = new Map<string, number>();
+    for (const rule of rules) {
+      if (rule.statExpr) {
+        const stats = this.codegen.collectStatIds(rule.statExpr);
+        for (const [name] of stats) {
+          statFreq.set(name, (statFreq.get(name) ?? 0) + 1);
+        }
+      }
+    }
+
+    // Hoist stats that appear 2+ times
+    const hoisted = new Map<number | string, string>();
+    let varIdx = 0;
+    for (const [name, count] of statFreq) {
+      if (count >= 2) {
+        const stat = this.config.aliases.stat[name];
+        if (stat === undefined) continue;
+        const key = Array.isArray(stat) ? `${stat[0]}_${stat[1]}` : stat;
+        if (hoisted.has(key)) continue;
+        const varName = `_h${varIdx++}`;
+        hoisted.set(key, varName);
+        if (Array.isArray(stat)) {
+          lines.push(`var ${varName}=item.getStatEx(${stat[0]},${stat[1]});`);
+        } else {
+          lines.push(`var ${varName}=item.getStatEx(${stat});`);
+        }
+      }
+    }
+
+    for (const rule of rules) {
+      if (isTier) {
+        this.emitTierRule(lines, rule, hoisted);
+      } else {
+        this.emitCheckRule(lines, rule, mqSources, false, hoisted);
+      }
+    }
+  }
+
+  private emitCheckRule(
+    lines: string[],
+    rule: GroupedRule,
+    mqSources: string[],
+    _isTier: boolean,
+    hoisted?: Map<number | string, string>,
+  ): void {
+    if (this.comments) lines.push(`// ${rule.source}`);
+
+    const conditions: string[] = [];
+    if (rule.residualProperty) {
+      conditions.push(this.codegen.emitPropertyExpr(rule.residualProperty));
+    }
+
+    const hasStats = rule.statExpr !== null;
+    const statJs = hasStats
+      ? (hoisted
+        ? this.codegen.emitStatExprWithHoisted(rule.statExpr!, hoisted)
+        : this.codegen.emitStatExpr(rule.statExpr!))
+      : null;
+
+    const mqIdx = mqSources.indexOf(rule.source);
+    const hasMq = mqIdx !== -1;
+
+    if (conditions.length > 0 && hasStats) {
+      lines.push(`if(${conditions.join('&&')}){`);
+      if (hasMq) {
+        lines.push(`if(${statJs}){`);
+        lines.push(`if(checkQuantityOwned(_mq[${mqIdx}].prop,_mq[${mqIdx}].stat)<${rule.maxQuantity}){`);
+        lines.push(`return{result:1,line:"${rule.source}"};`);
+        lines.push('}}');
+      } else {
+        lines.push(`if(${statJs}){return{result:1,line:"${rule.source}"};}`);
+        lines.push(`else if(!identified&&result===0){result=-1;line="${rule.source}";}`);
+      }
+      lines.push('}');
+    } else if (conditions.length > 0) {
+      if (hasMq) {
+        lines.push(`if(${conditions.join('&&')}){`);
+        lines.push(`if(checkQuantityOwned(_mq[${mqIdx}].prop,null)<${rule.maxQuantity}){`);
+        lines.push(`return{result:1,line:"${rule.source}"};`);
+        lines.push('}}');
+      } else {
+        lines.push(`if(${conditions.join('&&')}){return{result:1,line:"${rule.source}"};}`);
+      }
+    } else if (hasStats) {
+      if (hasMq) {
+        lines.push(`if(${statJs}){`);
+        lines.push(`if(checkQuantityOwned(null,_mq[${mqIdx}].stat)<${rule.maxQuantity}){`);
+        lines.push(`return{result:1,line:"${rule.source}"};`);
+        lines.push('}}');
+      } else {
+        lines.push(`if(${statJs}){return{result:1,line:"${rule.source}"};}`);
+        lines.push(`else if(!identified&&result===0){result=-1;line="${rule.source}";}`);
+      }
+    } else {
+      lines.push(`return{result:1,line:"${rule.source}"};`);
+    }
+  }
+
+  private emitTierFunction(
+    name: string,
+    field: 'tier' | 'mercTier',
+    plan: DispatchPlan,
+  ): string {
+    const lines: string[] = [];
+    lines.push(`function ${name}(item){`);
+    lines.push('var tier=-1,t;');
+
+    const emitGroup = (groups: Map<number, Map<number | null, GroupedRule[]>>, switchExpr: string): void => {
+      const filtered = new Map<number, Map<number | null, GroupedRule[]>>();
+      for (const [key, qualityMap] of groups) {
+        const filteredQuality = new Map<number | null, GroupedRule[]>();
+        for (const [q, rules] of qualityMap) {
+          const tierRules = rules.filter(r => r[field] !== null);
+          if (tierRules.length > 0) filteredQuality.set(q, tierRules);
+        }
+        if (filteredQuality.size > 0) filtered.set(key, filteredQuality);
+      }
+
+      if (filtered.size === 0) return;
+
+      lines.push(`switch(${switchExpr}){`);
+      for (const [key, qualityMap] of filtered) {
+        lines.push(`case ${key}:{`);
+        this.emitQualityDispatch(lines, qualityMap, [], true);
+        lines.push('break;}');
+      }
+      lines.push('}');
+    };
+
+    emitGroup(plan.classidGroups, 'item.classid');
+    emitGroup(plan.typeGroups, 'item.itemType');
+
+    const catchAllTier = plan.catchAll.filter(r => r[field] !== null);
+    for (const rule of catchAllTier) {
+      this.emitTierRule(lines, rule);
+    }
+
+    lines.push('return tier;');
+    lines.push('}');
+    return lines.join('\n');
+  }
+
+  private emitTierRule(
+    lines: string[],
+    rule: GroupedRule,
+    hoisted?: Map<number | string, string>,
+  ): void {
+    if (this.comments) lines.push(`// ${rule.source}`);
+
+    const tierValue = rule.tier ?? rule.mercTier;
+    if (tierValue === null) return;
+
+    const conditions: string[] = [];
+    if (rule.residualProperty) {
+      conditions.push(this.codegen.emitPropertyExpr(rule.residualProperty));
+    }
+    if (rule.statExpr) {
+      conditions.push(
+        hoisted
+          ? this.codegen.emitStatExprWithHoisted(rule.statExpr, hoisted)
+          : this.codegen.emitStatExpr(rule.statExpr)
+      );
+    }
+
+    if (conditions.length > 0) {
+      lines.push(`if(${conditions.join('&&')}){t=${tierValue};if(t>tier)tier=t;}`);
+    } else {
+      lines.push(`t=${tierValue};if(t>tier)tier=t;`);
+    }
+  }
+}
