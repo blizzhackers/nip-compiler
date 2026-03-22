@@ -146,13 +146,13 @@ describe('CodeGen', () => {
   it('emits property keyword', () => {
     const line = parser.parseLine('[name] == ring');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(item.classid==85)');
+    assert.strictEqual(js, '(item.classid===85)');
   });
 
   it('emits quality comparison', () => {
     const line = parser.parseLine('[quality] == unique');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(item.quality==7)');
+    assert.strictEqual(js, '(item.quality===7)');
   });
 
   it('emits flag check (== becomes call)', () => {
@@ -182,7 +182,7 @@ describe('CodeGen', () => {
   it('emits AND conjunction', () => {
     const line = parser.parseLine('[name] == ring && [quality] == unique');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '((item.classid==85)&&(item.quality==7))');
+    assert.strictEqual(js, '((item.classid===85)&&(item.quality===7))');
   });
 
   it('collects stat IDs for hoisting', () => {
@@ -197,7 +197,7 @@ describe('CodeGen', () => {
     const line = parser.parseLine('[name] == ring # [fcr] == 10');
     const hoisted = new Map<number | string, string>([[105, '_h0']]);
     const js = codegen.emitStatExprWithHoisted(line.stats!.expr, hoisted);
-    assert.strictEqual(js, '(_h0==10)');
+    assert.strictEqual(js, '(_h0===10)');
   });
 });
 

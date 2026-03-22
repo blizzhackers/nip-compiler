@@ -109,12 +109,13 @@ export class CodeGen {
       && isComparison(expr.op)) {
       const left = this.emitExpr(expr.left, section, hoisted);
       const right = this.emitExpr(expr.right, section, hoisted, expr.left.name);
-      return `(${left}${expr.op}${right})`;
+      return `(${left}${strictOp(expr.op)}${right})`;
     }
 
     const left = this.emitExpr(expr.left, section, hoisted);
     const right = this.emitExpr(expr.right, section, hoisted);
-    return `(${left}${expr.op}${right})`;
+    const op = isComparison(expr.op) ? strictOp(expr.op) : expr.op;
+    return `(${left}${op}${right})`;
   }
 
   private emitPropertyKeyword(name: string): string {
@@ -174,4 +175,10 @@ export class CodeGen {
 
 function isComparison(op: string): boolean {
   return op === '==' || op === '!=' || op === '>' || op === '>=' || op === '<' || op === '<=';
+}
+
+function strictOp(op: string): string {
+  if (op === '==') return '===';
+  if (op === '!=') return '!==';
+  return op;
 }
