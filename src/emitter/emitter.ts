@@ -437,7 +437,7 @@ export class Emitter {
     _isTier: boolean,
     hoisted?: Map<number | string, string>,
   ): void {
-    if (this.comments) lines.push(`// ${rule.source}`);
+    if (this.comments) lines.push(`// ${rule.source}${rule.line.comment ? ' — ' + rule.line.comment : ''}`);
 
     const conditions: string[] = [];
     if (rule.residualProperty) {
@@ -545,7 +545,7 @@ export class Emitter {
     field: 'tierExpr' | 'mercTierExpr',
     hoisted?: Map<number | string, string>,
   ): void {
-    if (this.comments) lines.push(`// ${rule.source}`);
+    if (this.comments) lines.push(`// ${rule.source}${rule.line.comment ? ' — ' + rule.line.comment : ''}`);
 
     const tierExpr = rule[field];
     if (!tierExpr) return;
