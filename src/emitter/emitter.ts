@@ -319,19 +319,28 @@ export class Emitter {
     // Group consecutive rules by shared flag residual to avoid repeated getFlag calls
     const groups = this.groupByFlagResidual(alive);
 
+    // Emit all rules — stat checks run even on unid items (some stats like defense are readable)
+    let hasStatRules = false;
     for (const group of groups) {
       if (group.flagCondition) {
         lines.push(`if(${group.flagCondition}){`);
         for (const rule of group.rules) {
           if (isTier) this.emitTierRule(lines, rule.stripped, this.currentTierField, hoisted);
-          else this.emitCheckRule(lines, rule.stripped, mqSources, false, hoisted);
+          else { this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted); if (rule.stripped.statExpr) hasStatRules = true; }
         }
         lines.push('}');
       } else {
         for (const rule of group.rules) {
           if (isTier) this.emitTierRule(lines, rule.original, this.currentTierField, hoisted);
-          else this.emitCheckRule(lines, rule.original, mqSources, false, hoisted);
+          else { this.emitCheckRule(lines, rule.original, mqSources, true, hoisted); if (rule.original.statExpr) hasStatRules = true; }
         }
+      }
+    }
+    // One maybe at the end — if no stat matched and item is unid, mark as "needs identification"
+    if (!isTier && hasStatRules) {
+      const firstStatRule = alive.find(r => r.statExpr);
+      if (firstStatRule) {
+        lines.push(`if(!_id)${this.emitMaybe(firstStatRule.source)}`);
       }
     }
   }
@@ -510,7 +519,7 @@ export class Emitter {
     lines: string[],
     rule: GroupedRule,
     mqSources: string[],
-    _isTier: boolean,
+    skipMaybe: boolean,
     hoisted?: Map<number | string, string>,
   ): void {
     if (this.comments) lines.push(`// ${rule.source}${rule.line.comment ? ' — ' + rule.line.comment : ''}`);
@@ -553,9 +562,7 @@ export class Emitter {
     const hasMq = mqIdx !== -1;
 
     const matchJs = this.emitMatch(rule.source);
-    // Skip maybe when the rule already requires identified (dead code: !identified inside if(identified))
-    const requiresIdentified = this.residualRequiresIdentified(rule.residualProperty);
-    const maybeJs = requiresIdentified ? '' : `else if(!_id&&_r===0){${this.emitMaybe(rule.source)}}`;
+    const maybeJs = skipMaybe ? '' : `else if(!_id)${this.emitMaybe(rule.source)}`;
 
     if (conditions.length > 0 && hasStats) {
       lines.push(`if(${conditions.join('&&')}){`);
