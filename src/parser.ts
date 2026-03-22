@@ -1,4 +1,5 @@
-import { Lexer } from './lexer.js';
+import { Lexer, LexerError } from './lexer.js';
+import { formatError } from './errors.js';
 import {
   Token, TokenType, NodeKind,
   NipLineNode, SectionNode, MetaSectionNode, MetaEntryNode,
@@ -31,11 +32,9 @@ export class Parser {
         const node = this.parseLine(rawLines[i], i + 1);
         lines.push(node);
       } catch (e) {
-        if (e instanceof ParseError) {
-          throw new ParseError(
-            `${filename}:${i + 1}: ${e.message}`,
-            e.line, e.col, e.pos,
-          );
+        if (e instanceof ParseError || e instanceof LexerError) {
+          const formatted = formatError(rawLines[i], 1, e.col, e.message, `${filename}:${i + 1}`);
+          throw new ParseError(formatted, e.line, e.col, e.pos);
         }
         throw e;
       }
