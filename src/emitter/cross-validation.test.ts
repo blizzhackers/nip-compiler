@@ -233,29 +233,36 @@ describe('Benchmark: our emitter vs original NTIP', () => {
     items = TEST_ITEMS.map(t => makeItem(t.mock));
   });
 
-  it('benchmarks original NTIP.CheckItem', () => {
+  it('benchmarks both (fair: both eval\'d, no VM penalty)', () => {
     const iterations = 10000;
-    const start = performance.now();
+    const totalChecks = iterations * items.length;
+
+    // Warm up both
+    for (const item of items) { original.checkItem(item); ours.checkItem(item); }
+
+    const startOrig = performance.now();
     for (let i = 0; i < iterations; i++) {
       for (const item of items) {
         original.checkItem(item);
       }
     }
-    const elapsed = performance.now() - start;
-    const opsPerSec = Math.round((iterations * items.length) / (elapsed / 1000));
-    console.log(`  Original NTIP: ${elapsed.toFixed(1)}ms for ${iterations * items.length} checks (${opsPerSec.toLocaleString()} ops/s)`);
-  });
+    const elapsedOrig = performance.now() - startOrig;
 
-  it('benchmarks our emitter checkItem', () => {
-    const iterations = 10000;
-    const start = performance.now();
+    const startOurs = performance.now();
     for (let i = 0; i < iterations; i++) {
       for (const item of items) {
         ours.checkItem(item);
       }
     }
-    const elapsed = performance.now() - start;
-    const opsPerSec = Math.round((iterations * items.length) / (elapsed / 1000));
-    console.log(`  Our emitter:   ${elapsed.toFixed(1)}ms for ${iterations * items.length} checks (${opsPerSec.toLocaleString()} ops/s)`);
+    const elapsedOurs = performance.now() - startOurs;
+
+    const opsOrig = Math.round(totalChecks / (elapsedOrig / 1000));
+    const opsOurs = Math.round(totalChecks / (elapsedOurs / 1000));
+    const speedup = (elapsedOrig / elapsedOurs).toFixed(1);
+
+    console.log(`  Original NTIP: ${elapsedOrig.toFixed(1)}ms (${opsOrig.toLocaleString()} ops/s)`);
+    console.log(`  Our emitter:   ${elapsedOurs.toFixed(1)}ms (${opsOurs.toLocaleString()} ops/s)`);
+    console.log(`  Speedup:       ${speedup}x faster`);
+    console.log(`  (${totalChecks.toLocaleString()} checks, ${items.length} items × ${iterations.toLocaleString()} iterations)`);
   });
 });

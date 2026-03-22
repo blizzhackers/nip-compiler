@@ -1,4 +1,9 @@
-import { NipFileNode } from '../types.js';
+import { ExprNode, NipFileNode, NodeKind } from '../types.js';
+
+interface FlagGroup {
+  flagCondition: string | null;
+  rules: { original: GroupedRule; stripped: GroupedRule }[];
+}
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
@@ -160,13 +165,79 @@ export class Emitter {
       }
     }
 
-    for (const rule of rules) {
-      if (isTier) {
-        this.emitTierRule(lines, rule, hoisted);
+    // Group consecutive rules by shared flag residual to avoid repeated getFlag calls
+    const groups = this.groupByFlagResidual(rules);
+
+    for (const group of groups) {
+      if (group.flagCondition) {
+        lines.push(`if(${group.flagCondition}){`);
+        for (const rule of group.rules) {
+          if (isTier) this.emitTierRule(lines, rule.stripped, hoisted);
+          else this.emitCheckRule(lines, rule.stripped, mqSources, false, hoisted);
+        }
+        lines.push('}');
       } else {
-        this.emitCheckRule(lines, rule, mqSources, false, hoisted);
+        for (const rule of group.rules) {
+          if (isTier) this.emitTierRule(lines, rule.original, hoisted);
+          else this.emitCheckRule(lines, rule.original, mqSources, false, hoisted);
+        }
       }
     }
+  }
+
+  private groupByFlagResidual(rules: GroupedRule[]): FlagGroup[] {
+    const groups: FlagGroup[] = [];
+    let current: FlagGroup | null = null;
+
+    for (const rule of rules) {
+      const flagExpr = this.extractFlagCondition(rule.residualProperty);
+
+      if (flagExpr) {
+        const flagJs = this.codegen.emitPropertyExpr(flagExpr.condition);
+        if (current && current.flagCondition === flagJs) {
+          current.rules.push({ original: rule, stripped: { ...rule, residualProperty: flagExpr.rest } });
+        } else {
+          current = { flagCondition: flagJs, rules: [{ original: rule, stripped: { ...rule, residualProperty: flagExpr.rest } }] };
+          groups.push(current);
+        }
+      } else {
+        current = null;
+        groups.push({ flagCondition: null, rules: [{ original: rule, stripped: rule }] });
+      }
+    }
+
+    // Only wrap in if-block when 2+ rules share the same flag
+    return groups.map(g => {
+      if (g.flagCondition && g.rules.length < 2) {
+        return { flagCondition: null, rules: [{ original: g.rules[0].original, stripped: g.rules[0].original }] };
+      }
+      return g;
+    });
+  }
+
+  private extractFlagCondition(expr: ExprNode | null): { condition: ExprNode; rest: ExprNode | null } | null {
+    if (!expr) return null;
+    if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return null;
+
+    // Check if left side is a flag check
+    if (this.isFlagExpr(expr.left)) {
+      return { condition: expr.left, rest: expr.right };
+    }
+    // Check if right side is a flag check
+    if (this.isFlagExpr(expr.right)) {
+      return { condition: expr.right, rest: expr.left };
+    }
+    return null;
+  }
+
+  private isFlagExpr(expr: ExprNode): boolean {
+    if (expr.kind === NodeKind.BinaryExpr && (expr.op === '==' || expr.op === '!=')) {
+      if (expr.left.kind === NodeKind.KeywordExpr && expr.left.name === 'flag') return true;
+    }
+    if (expr.kind === NodeKind.UnaryExpr) {
+      return this.isFlagExpr(expr.operand);
+    }
+    return false;
   }
 
   private emitMatch(source: string): string {
