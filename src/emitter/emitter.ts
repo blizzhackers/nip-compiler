@@ -184,7 +184,7 @@ export class Emitter {
       for (const [classid, qualityMap] of plan.classidGroups) {
         lines.push(`case ${classid}:{`);
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
-        lines.push('break;}');
+        this.emitCaseEnd(lines);
       }
       lines.push('}');
     }
@@ -194,7 +194,7 @@ export class Emitter {
       for (const [type, qualityMap] of plan.typeGroups) {
         lines.push(`case ${type}:{`);
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
-        lines.push('break;}');
+        this.emitCaseEnd(lines);
       }
       lines.push('}');
     }
@@ -249,7 +249,7 @@ export class Emitter {
       for (const [quality, rules] of fixedQualities) {
         lines.push(`case ${quality}:{`);
         this.emitHoistedGroup(lines, rules, mqSources, isTier);
-        lines.push('break;}');
+        this.emitCaseEnd(lines);
       }
       lines.push('}');
     }
@@ -295,11 +295,17 @@ export class Emitter {
       }
     }
 
-    // Sort: property-only rules first (no stat checks = cheaper), then stat rules
+    // Sort: property-only first, then group by flag condition for better dedup
     const sorted = [...rules].sort((a, b) => {
       const aHasStats = a.statExpr !== null ? 1 : 0;
       const bHasStats = b.statExpr !== null ? 1 : 0;
-      return aHasStats - bHasStats;
+      if (aHasStats !== bHasStats) return aHasStats - bHasStats;
+      // Secondary: group by flag condition so consecutive rules share the same flag check
+      const aFlag = this.getFlagKey(a.residualProperty);
+      const bFlag = this.getFlagKey(b.residualProperty);
+      if (aFlag < bFlag) return -1;
+      if (aFlag > bFlag) return 1;
+      return 0;
     });
 
     // Dead code elimination: if a rule has no residual property AND no stats,
@@ -431,6 +437,31 @@ export class Emitter {
     }
   }
 
+  private residualRequiresIdentified(expr: ExprNode | null): boolean {
+    if (!expr) return false;
+    if (expr.kind === NodeKind.BinaryExpr) {
+      if (expr.op === '==' && expr.left.kind === NodeKind.KeywordExpr
+        && expr.left.name === 'flag' && expr.right.kind === NodeKind.Identifier
+        && expr.right.name === 'identified') return true;
+      if (expr.op === '&&') {
+        return this.residualRequiresIdentified(expr.left) || this.residualRequiresIdentified(expr.right);
+      }
+    }
+    return false;
+  }
+
+  private getFlagKey(expr: ExprNode | null): string {
+    if (!expr) return '';
+    const flag = this.extractFlagCondition(expr);
+    if (!flag) return '';
+    return this.codegen.emitPropertyExpr(flag.condition);
+  }
+
+  private emitCaseEnd(lines: string[]): void {
+    const last = lines[lines.length - 1];
+    lines.push(last.includes('return ') ? '}' : 'break;}');
+  }
+
   private emitMatch(source: string): string {
     const id = this.getSourceId(source);
     return `return ${id + 1};`;
@@ -488,7 +519,9 @@ export class Emitter {
     const hasMq = mqIdx !== -1;
 
     const matchJs = this.emitMatch(rule.source);
-    const maybeJs = `else if(!identified&&result===0){${this.emitMaybe(rule.source)}}`;
+    // Skip maybe when the rule already requires identified (dead code: !identified inside if(identified))
+    const requiresIdentified = this.residualRequiresIdentified(rule.residualProperty);
+    const maybeJs = requiresIdentified ? '' : `else if(!identified&&result===0){${this.emitMaybe(rule.source)}}`;
 
     if (conditions.length > 0 && hasStats) {
       lines.push(`if(${conditions.join('&&')}){`);
@@ -553,7 +586,7 @@ export class Emitter {
       for (const [key, qualityMap] of filtered) {
         lines.push(`case ${key}:{`);
         this.emitQualityDispatch(lines, qualityMap, [], true);
-        lines.push('break;}');
+        this.emitCaseEnd(lines);
       }
       lines.push('}');
     };
