@@ -150,43 +150,43 @@ describe('CodeGen', () => {
   it('emits property keyword', () => {
     const line = parser.parseLine('[name] == ring');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(item.classid===85)');
+    assert.strictEqual(js, '(_c===85)');
   });
 
   it('emits quality comparison', () => {
     const line = parser.parseLine('[quality] == unique');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(item.quality===7)');
+    assert.strictEqual(js, '(_q===7)');
   });
 
   it('emits flag check (== becomes call)', () => {
     const line = parser.parseLine('[flag] == ethereal');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, 'item.getFlag(4194304)');
+    assert.strictEqual(js, 'i.getFlag(4194304)');
   });
 
   it('emits negated flag check', () => {
     const line = parser.parseLine('[flag] != ethereal');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(!item.getFlag(4194304))');
+    assert.strictEqual(js, '(!i.getFlag(4194304))');
   });
 
   it('emits stat keyword', () => {
     const line = parser.parseLine('[name] == ring # [strength] >= 20');
     const js = codegen.emitStatExpr(line.stats!.expr);
-    assert.strictEqual(js, '((item.getStatEx(0)|0)>=20)');
+    assert.strictEqual(js, '((i.getStatEx(0)|0)>=20)');
   });
 
   it('emits stat addition', () => {
     const line = parser.parseLine('[name] == ring # [strength] + [dexterity] >= 30');
     const js = codegen.emitStatExpr(line.stats!.expr);
-    assert.strictEqual(js, '(((item.getStatEx(0)|0)+(item.getStatEx(2)|0))>=30)');
+    assert.strictEqual(js, '(((i.getStatEx(0)|0)+(i.getStatEx(2)|0))>=30)');
   });
 
   it('emits AND conjunction', () => {
     const line = parser.parseLine('[name] == ring && [quality] == unique');
     const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '((item.classid===85)&&(item.quality===7))');
+    assert.strictEqual(js, '((_c===85)&&(_q===7))');
   });
 
   it('collects stat IDs for hoisting', () => {
@@ -390,7 +390,7 @@ describe('Emitter', () => {
     const file = parser.parseFile('[type] == armor && [quality] == rare # [enhanceddefense] >= 150', 'test.nip');
     binder.bindFile(file);
     const js = emitter.emit([file]);
-    assert.ok(js.includes('item.itemType'));
+    assert.ok(js.includes('i.itemType'));
     const factory = eval(js);
     const mod = factory({
       checkQuantityOwned: () => 0,

@@ -77,10 +77,10 @@ export class Emitter {
       lines.push('var _mq=[');
       for (const mq of mqRules) {
         const propJs = mq.line.property
-          ? `function(item){return ${this.codegen.emitPropertyExpr(mq.line.property.expr)};}`
+          ? `function(i){return ${this.codegen.emitPropertyExpr(mq.line.property.expr)};}`
           : 'null';
         const statJs = mq.line.stats
-          ? `function(item){return ${this.codegen.emitStatExpr(mq.line.stats.expr)};}`
+          ? `function(i){return ${this.codegen.emitStatExpr(mq.line.stats.expr)};}`
           : 'null';
         lines.push(`{prop:${propJs},stat:${statJs},max:${mq.maxQuantity}},`);
       }
@@ -150,8 +150,8 @@ export class Emitter {
     }
 
     // Inner function: returns positive sourceId+1 for match, negative -(sourceId+1) for maybe, 0 for no match
-    lines.push('function _ci(item,identified){');
-    lines.push('var result=0;');
+    lines.push('function _ci(i,_id){');
+    lines.push('var _r=0,_c=i.classid|0,_q=i.quality|0,_t=i.itemType|0;');
 
     if (this.useObjectLookup) {
       this.emitLookupDispatch(lines, plan);
@@ -165,12 +165,12 @@ export class Emitter {
       }
     }
 
-    lines.push('return result;');
+    lines.push('return _r;');
     lines.push('}');
 
     // Public wrapper: maps raw IDs to 0/1/-1 API, handles verbose
-    lines.push('function checkItem(item,verbose){');
-    lines.push('var r=_ci(item,item.getFlag(16));');
+    lines.push('function checkItem(i,verbose){');
+    lines.push('var r=_ci(i,i.getFlag(16));');
     lines.push('if(!verbose)return r>0?1:r<0?-1:0;');
     lines.push('var id=(r>0?r:-r)-1;var e=id>=0?_s[id]:null;');
     lines.push('return{result:r>0?1:r<0?-1:0,file:e?_f[e[0]]:null,line:e?e[1]:0};');
@@ -180,7 +180,7 @@ export class Emitter {
 
   private emitSwitchDispatch(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
     if (plan.classidGroups.size > 0) {
-      lines.push('switch(item.classid|0){');
+      lines.push('switch(_c){');
       for (const [classid, qualityMap] of plan.classidGroups) {
         lines.push(`case ${classid}:{`);
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
@@ -190,7 +190,7 @@ export class Emitter {
     }
 
     if (plan.typeGroups.size > 0) {
-      lines.push('switch(item.itemType|0){');
+      lines.push('switch(_t){');
       for (const [type, qualityMap] of plan.typeGroups) {
         lines.push(`case ${type}:{`);
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
@@ -208,10 +208,10 @@ export class Emitter {
       lines.push(`var ${tableName}={};`);
       for (const [key, qualityMap] of groups) {
         const fnName = `_f${fnIdx++}`;
-        lines.push(`function ${fnName}(item,identified){`);
-        lines.push('var result=0;');
+        lines.push(`function ${fnName}(i,_id){`);
+        lines.push('var _r=0,_q=i.quality|0;');
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
-        lines.push('return result;');
+        lines.push('return _r;');
         lines.push('}');
         lines.push(`${tableName}[${key}]=${fnName};`);
       }
@@ -225,14 +225,14 @@ export class Emitter {
     const emitLookup = (tableName: string, keyExpr: string): void => {
       lines.push(`var _fn=${tableName}[${keyExpr}];`);
       lines.push('if(_fn){');
-      lines.push('var _r=_fn(item,identified);');
-      lines.push('if(_r>0)return _r;');
-      lines.push('if(_r<0)result=_r;');
+      lines.push('var _hr=_fn(i,_id);');
+      lines.push('if(_hr>0)return _hr;');
+      lines.push('if(_hr<0)_r=_hr;');
       lines.push('}');
     };
 
-    if (plan.classidGroups.size > 0) emitLookup('_cc', 'item.classid');
-    if (plan.typeGroups.size > 0) emitLookup('_tt', 'item.itemType');
+    if (plan.classidGroups.size > 0) emitLookup('_cc', 'i.classid');
+    if (plan.typeGroups.size > 0) emitLookup('_tt', 'i.itemType');
   }
 
   private emitQualityDispatch(
@@ -245,7 +245,7 @@ export class Emitter {
     const anyQuality = qualityMap.get(null);
 
     if (fixedQualities.length > 0) {
-      lines.push('switch(item.quality|0){');
+      lines.push('switch(_q){');
       for (const [quality, rules] of fixedQualities) {
         lines.push(`case ${quality}:{`);
         this.emitHoistedGroup(lines, rules, mqSources, isTier);
@@ -288,9 +288,9 @@ export class Emitter {
         const varName = `_h${varIdx++}`;
         hoisted.set(key, varName);
         if (Array.isArray(stat)) {
-          lines.push(`var ${varName}=item.getStatEx(${stat[0]},${stat[1]})|0;`);
+          lines.push(`var ${varName}=i.getStatEx(${stat[0]},${stat[1]})|0;`);
         } else {
-          lines.push(`var ${varName}=item.getStatEx(${stat})|0;`);
+          lines.push(`var ${varName}=i.getStatEx(${stat})|0;`);
         }
       }
     }
@@ -503,7 +503,7 @@ export class Emitter {
 
   private emitMaybe(source: string): string {
     const id = this.getSourceId(source);
-    return `result=${-(id + 1)};`;
+    return `_r=${-(id + 1)};`;
   }
 
   private emitCheckRule(
@@ -538,9 +538,9 @@ export class Emitter {
         const varName = `_l${exprHoisted.size}`;
         exprHoisted.set(key, varName);
         if (Array.isArray(numStat)) {
-          lines.push(`var ${varName}=item.getStatEx(${numStat[0]},${numStat[1]})|0;`);
+          lines.push(`var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`);
         } else {
-          lines.push(`var ${varName}=item.getStatEx(${numStat})|0;`);
+          lines.push(`var ${varName}=i.getStatEx(${numStat})|0;`);
         }
       }
     }
@@ -555,7 +555,7 @@ export class Emitter {
     const matchJs = this.emitMatch(rule.source);
     // Skip maybe when the rule already requires identified (dead code: !identified inside if(identified))
     const requiresIdentified = this.residualRequiresIdentified(rule.residualProperty);
-    const maybeJs = requiresIdentified ? '' : `else if(!identified&&result===0){${this.emitMaybe(rule.source)}}`;
+    const maybeJs = requiresIdentified ? '' : `else if(!_id&&_r===0){${this.emitMaybe(rule.source)}}`;
 
     if (conditions.length > 0 && hasStats) {
       lines.push(`if(${conditions.join('&&')}){`);
@@ -600,8 +600,8 @@ export class Emitter {
   ): string {
     const lines: string[] = [];
     this.currentTierField = field;
-    lines.push(`function ${name}(item){`);
-    lines.push('var tier=-1,t;');
+    lines.push(`function ${name}(i){`);
+    lines.push('var tier=-1,t,_c=i.classid|0,_q=i.quality|0,_t=i.itemType|0;');
 
     const emitGroup = (groups: Map<number, Map<number | null, GroupedRule[]>>, switchExpr: string): void => {
       const filtered = new Map<number, Map<number | null, GroupedRule[]>>();
@@ -625,8 +625,8 @@ export class Emitter {
       lines.push('}');
     };
 
-    emitGroup(plan.classidGroups, 'item.classid');
-    emitGroup(plan.typeGroups, 'item.itemType');
+    emitGroup(plan.classidGroups, 'i.classid');
+    emitGroup(plan.typeGroups, 'i.itemType');
 
     const catchAllTier = plan.catchAll.filter(r => r[field] !== null);
     for (const rule of catchAllTier) {
@@ -671,8 +671,8 @@ export class Emitter {
         const varName = `_l${exprHoisted.size}`;
         exprHoisted.set(key, varName);
         lines.push(Array.isArray(numStat)
-          ? `var ${varName}=item.getStatEx(${numStat[0]},${numStat[1]})|0;`
-          : `var ${varName}=item.getStatEx(${numStat})|0;`);
+          ? `var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
+          : `var ${varName}=i.getStatEx(${numStat})|0;`);
       }
       conditions.push(this.codegen.emitStatExprWithHoisted(reordered, exprHoisted));
     }

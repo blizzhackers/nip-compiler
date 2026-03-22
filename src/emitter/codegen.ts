@@ -2,24 +2,24 @@ import { ExprNode, NodeKind, BinaryExprNode, KeywordExprNode } from '../types.js
 import { AliasMapSet } from './types.js';
 
 const PROPERTY_MAP: Record<string, string> = {
-  classid: 'item.classid',
-  name: 'item.classid',
-  type: 'item.itemType',
-  quality: 'item.quality',
-  class: 'item.itemclass',
-  level: 'item.ilvl',
+  classid: '_c',
+  name: '_c',
+  type: '_t',
+  quality: '_q',
+  class: 'i.itemclass',
+  level: 'i.ilvl',
   charlvl: 'me.charlvl',
-  wsm: 'getBaseStat("items",item.classid,"speed")',
-  weaponspeed: 'getBaseStat("items",item.classid,"speed")',
-  minimumsockets: 'getBaseStat("items",item.classid,"gemsockets")',
-  strreq: 'item.strreq',
-  dexreq: 'item.dexreq',
-  '2handed': 'getBaseStat("items",item.classid,"2handed")',
-  color: 'item.getColor()',
+  wsm: 'getBaseStat("items",_c,"speed")',
+  weaponspeed: 'getBaseStat("items",_c,"speed")',
+  minimumsockets: 'getBaseStat("items",_c,"gemsockets")',
+  strreq: 'i.strreq',
+  dexreq: 'i.dexreq',
+  '2handed': 'getBaseStat("items",_c,"2handed")',
+  color: 'i.getColor()',
   ladder: 'me.ladder',
   hardcore: '(!!me.playertype)',
   classic: '(!me.gametype)',
-  distance: '(item.onGroundOrDropping&&item.distance||Infinity)',
+  distance: '(i.onGroundOrDropping&&i.distance||Infinity)',
   europe: '(me.realm.toLowerCase()==="europe")',
   uswest: '(me.realm.toLowerCase()==="uswest")',
   useast: '(me.realm.toLowerCase()==="useast")',
@@ -28,9 +28,9 @@ const PROPERTY_MAP: Record<string, string> = {
 
 const CALLABLE_KEYWORDS = new Set(['flag', 'prefix', 'suffix']);
 const CALLABLE_FN: Record<string, string> = {
-  flag: 'item.getFlag',
-  prefix: 'item.getPrefix',
-  suffix: 'item.getSuffix',
+  flag: 'i.getFlag',
+  prefix: 'i.getPrefix',
+  suffix: 'i.getSuffix',
 };
 
 export class CodeGen {
@@ -96,9 +96,9 @@ export class CodeGen {
       && (expr.op === '==' || expr.op === '!=')) {
       const fn = CALLABLE_FN[expr.left.name];
       const value = this.emitExpr(expr.right, section, hoisted, expr.left.name);
-      // Reuse the hoisted `identified` var for [flag] == identified (0x10 = 16)
+      // Reuse the hoisted `_id` var for [flag] == identified (0x10 = 16)
       if (expr.left.name === 'flag' && value === '16') {
-        return expr.op === '!=' ? '(!identified)' : 'identified';
+        return expr.op === '!=' ? '(!_id)' : '_id';
       }
       const call = `${fn}(${value})`;
       return expr.op === '!=' ? `(!${call})` : call;
@@ -135,10 +135,10 @@ export class CodeGen {
     if (stat === undefined) {
       if (name.includes(',')) {
         const [id, param] = name.split(',');
-        return `(item.getStatEx(${id},${param})|0)`;
+        return `(i.getStatEx(${id},${param})|0)`;
       }
       const num = Number(name);
-      if (!isNaN(num)) return `(item.getStatEx(${num})|0)`;
+      if (!isNaN(num)) return `(i.getStatEx(${num})|0)`;
       throw new Error(`Unknown stat: ${name}`);
     }
 
@@ -147,9 +147,9 @@ export class CodeGen {
 
     // |0 hints SpiderMonkey that getStatEx returns int32
     if (Array.isArray(stat)) {
-      return `(item.getStatEx(${stat[0]},${stat[1]})|0)`;
+      return `(i.getStatEx(${stat[0]},${stat[1]})|0)`;
     }
-    return `(item.getStatEx(${stat})|0)`;
+    return `(i.getStatEx(${stat})|0)`;
   }
 
   private resolveIdentifier(name: string, keyword: string): number | null {
