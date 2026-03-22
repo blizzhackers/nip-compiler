@@ -21,11 +21,15 @@ interface MockItem {
   itemclass?: number;
   flags?: number;
   stats?: Record<string, number>;
+  _prefix?: number;
+  _suffix?: number;
 }
 
 function makeItem(mock: MockItem) {
   const flags = mock.flags ?? 0x10;
   const stats = mock.stats ?? {};
+  const prefix = mock._prefix ?? 0;
+  const suffix = mock._suffix ?? 0;
   return {
     classid: mock.classid,
     quality: mock.quality,
@@ -42,8 +46,8 @@ function makeItem(mock: MockItem) {
     dexreq: 0,
     onGroundOrDropping: true,
     distance: 5,
-    getPrefix: () => 0,
-    getSuffix: () => 0,
+    getPrefix: (v: number) => v === prefix ? v : 0,
+    getSuffix: (v: number) => v === suffix ? v : 0,
     getParent: () => null,
     isInStorage: false,
     fname: 'Test Item',
@@ -192,6 +196,9 @@ const TEST_LINES = [
   // Set items
   '[name] == lacqueredplate && [quality] == set // tal armor',
   '[name] == swirlingcrystal && [quality] == set # [skillcoldmastery] == 2 // tal weapon',
+  // Prefix/suffix
+  '[name] == ring && [quality] == rare && [prefix] == 10 # [fcr] == 10',
+  '[name] == ring && [quality] == rare && [suffix] == 20',
   // Runes
   '[name] == berrune // ber rune',
   '[name] == jahrune // jah rune',
@@ -275,6 +282,10 @@ const TEST_ITEMS: TestItem[] = [
   { label: 'Jah rune', mock: { classid: cid('jahrune'), quality: qid('normal'), itemType: tid('rune') } },
   { label: 'Ist rune', mock: { classid: cid('istrune'), quality: qid('normal'), itemType: tid('rune') } },
   { label: 'Eld rune (no match)', mock: { classid: cid('eldrune'), quality: qid('normal'), itemType: tid('rune') } },
+  // --- Prefix/suffix ---
+  { label: 'rare ring with prefix 10 and fcr', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10 }, _prefix: 10 } },
+  { label: 'rare ring with suffix 20', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), _suffix: 20 } },
+  { label: 'rare ring without matching prefix', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10 }, _prefix: 5 } },
   // --- Unidentified items ---
   { label: 'unidentified SoJ', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: { [sidKey('itemmaxmanapercent')]: 25 } } },
   { label: 'unidentified unique ring empty stats', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: {} } },
