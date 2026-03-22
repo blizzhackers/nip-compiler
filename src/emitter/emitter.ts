@@ -392,22 +392,41 @@ export class Emitter {
   }
 
   private reorderBySelectivity(expr: ExprNode): ExprNode {
-    if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return expr;
+    if (expr.kind !== NodeKind.BinaryExpr) return expr;
 
-    const conjuncts = this.flattenAnd(expr);
-    const reordered = conjuncts.sort((a, b) => this.selectivityScore(a) - this.selectivityScore(b));
+    // Recurse into sub-expressions first
+    if (expr.op === '&&' || expr.op === '||') {
+      const reorderedLeft = this.reorderBySelectivity(expr.left);
+      const reorderedRight = this.reorderBySelectivity(expr.right);
+      expr = { ...expr, left: reorderedLeft, right: reorderedRight };
+    }
 
-    return reordered.reduce((left, right) => ({
-      kind: NodeKind.BinaryExpr as const,
-      op: '&&' as const,
-      left,
-      right,
-      loc: left.loc,
-    }));
+    if (expr.op === '&&') {
+      // AND: put most selective (likely to fail) first
+      const conjuncts = this.flattenAnd(expr);
+      const reordered = conjuncts.sort((a, b) => this.selectivityScore(a) - this.selectivityScore(b));
+      return this.rebuildChain(reordered, '&&');
+    }
+
+    if (expr.op === '||') {
+      // OR: put cheapest (fewest nodes) first — short-circuits faster
+      const disjuncts = this.flattenOr(expr);
+      const reordered = disjuncts.sort((a, b) => this.exprCost(a) - this.exprCost(b));
+      return this.rebuildChain(reordered, '||');
+    }
+
+    return expr;
+  }
+
+  private rebuildChain(exprs: ExprNode[], op: '&&' | '||'): ExprNode {
+    let result = exprs[0];
+    for (let i = 1; i < exprs.length; i++) {
+      result = { kind: NodeKind.BinaryExpr as const, op, left: result, right: exprs[i], loc: result.loc };
+    }
+    return result;
   }
 
   private selectivityScore(expr: ExprNode): number {
-    // Lower = more selective = should be checked first
     if (expr.kind === NodeKind.BinaryExpr) {
       if (expr.op === '==') return 0;
       if (expr.op === '!=') return 1;
@@ -419,9 +438,24 @@ export class Emitter {
     return 4;
   }
 
+  private exprCost(expr: ExprNode): number {
+    // Count nodes — cheaper expressions have fewer nodes
+    if (expr.kind === NodeKind.NumberLiteral || expr.kind === NodeKind.Identifier || expr.kind === NodeKind.KeywordExpr) return 1;
+    if (expr.kind === NodeKind.UnaryExpr) return 1 + this.exprCost(expr.operand);
+    if (expr.kind === NodeKind.BinaryExpr) return 1 + this.exprCost(expr.left) + this.exprCost(expr.right);
+    return 1;
+  }
+
   private flattenAnd(expr: ExprNode): ExprNode[] {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
       return [...this.flattenAnd(expr.left), ...this.flattenAnd(expr.right)];
+    }
+    return [expr];
+  }
+
+  private flattenOr(expr: ExprNode): ExprNode[] {
+    if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
+      return [...this.flattenOr(expr.left), ...this.flattenOr(expr.right)];
     }
     return [expr];
   }
