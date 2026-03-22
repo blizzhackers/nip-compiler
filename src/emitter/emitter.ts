@@ -14,6 +14,8 @@ export class Emitter {
   private grouper: Grouper;
   private codegen: CodeGen;
   private comments: boolean;
+  private sourceTable: string[] = [];
+  private sourceIdMap = new Map<string, number>();
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -22,7 +24,21 @@ export class Emitter {
     this.comments = config.includeSourceComments ?? true;
   }
 
+  private getSourceId(source: string): number {
+    let id = this.sourceIdMap.get(source);
+    if (id === undefined) {
+      id = this.sourceTable.length;
+      const [file, lineNum] = source.split('#');
+      this.sourceTable.push(`"${file}",${lineNum}`);
+      this.sourceIdMap.set(source, id);
+    }
+    return id;
+  }
+
   emit(files: NipFileNode[]): string {
+    this.sourceTable = [];
+    this.sourceIdMap.clear();
+
     const allLines = files.flatMap(f =>
       f.lines
         .filter(l => l.property || l.stats)
@@ -61,6 +77,13 @@ export class Emitter {
     lines.push('');
     lines.push(this.emitTierFunction('getMercTier', 'mercTier', plan));
     lines.push('');
+    // Source table — emitted after all rules so all IDs are collected
+    // _s[id] = [file, line]
+    const srcLine = 'var _s=[' + this.sourceTable.map(s => `[${s}]`).join(',') + '];';
+    // Insert after the helpers, before checkItem
+    const insertIdx = lines.indexOf('') + 1;
+    lines.splice(insertIdx, 0, srcLine);
+
     lines.push('return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
     lines.push('})');
 
@@ -71,7 +94,7 @@ export class Emitter {
     const lines: string[] = [];
     lines.push('function checkItem(item,verbose){');
     lines.push('var identified=item.getFlag(16);');
-    lines.push('var result=0,file=null,line=0;');
+    lines.push('var result=0,_si=-1;');
 
     if (plan.classidGroups.size > 0) {
       lines.push('switch(item.classid){');
@@ -99,7 +122,7 @@ export class Emitter {
       }
     }
 
-    lines.push('if(verbose){return{result:result,file:file,line:line};}');
+    lines.push('if(verbose)return{result:result,file:_si>=0?_s[_si][0]:null,line:_si>=0?_s[_si][1]:0};');
     lines.push('return result;');
     lines.push('}');
     return lines.join('\n');
@@ -291,13 +314,13 @@ export class Emitter {
   }
 
   private emitMatch(source: string): string {
-    const [file, lineNum] = source.split('#');
-    return `if(verbose){return{result:1,file:"${file}",line:${lineNum}};}return 1;`;
+    const id = this.getSourceId(source);
+    return `if(verbose)return{result:1,file:_s[${id}][0],line:_s[${id}][1]};return 1;`;
   }
 
   private emitMaybe(source: string): string {
-    const [file, lineNum] = source.split('#');
-    return `result=-1;file="${file}";line=${lineNum};`;
+    const id = this.getSourceId(source);
+    return `result=-1;_si=${id};`;
   }
 
   private emitCheckRule(
