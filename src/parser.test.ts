@@ -389,6 +389,50 @@ describe('Parser', () => {
     });
   });
 
+  describe('in/notin syntax', () => {
+    it('parses [quality]in(unique,set) as OR chain', () => {
+      const node = parser.parseLine('[quality]in(unique,set)');
+      const expr = node.property!.expr;
+      assertBinary(expr, '||');
+      assertBinary((expr as BinaryExprNode).left, '==');
+      assertBinary((expr as BinaryExprNode).right, '==');
+    });
+
+    it('parses [quality]notin(unique,set) as AND chain', () => {
+      const node = parser.parseLine('[quality]notin(unique,set)');
+      const expr = node.property!.expr;
+      assertBinary(expr, '&&');
+      assertBinary((expr as BinaryExprNode).left, '!=');
+      assertBinary((expr as BinaryExprNode).right, '!=');
+    });
+
+    it('parses in() with three values', () => {
+      const node = parser.parseLine('[name]in(ring,amulet,charm)');
+      const expr = node.property!.expr;
+      // ((ring || amulet) || charm)
+      assertBinary(expr, '||');
+      assertBinary((expr as BinaryExprNode).left, '||');
+    });
+
+    it('parses in() with numeric values', () => {
+      const node = parser.parseLine('[quality]in(6,7)');
+      const expr = node.property!.expr;
+      assertBinary(expr, '||');
+    });
+
+    it('parses in() combined with other conditions', () => {
+      const node = parser.parseLine('[quality]in(unique,rare) && [name] == ring');
+      const expr = node.property!.expr;
+      assertBinary(expr, '&&');
+    });
+
+    it('parses notin() with single value', () => {
+      const node = parser.parseLine('[flag]notin(ethereal)');
+      const expr = node.property!.expr;
+      assertBinary(expr, '!=');
+    });
+  });
+
   describe('file parsing', () => {
     it('parses multiple lines', () => {
       const input = [

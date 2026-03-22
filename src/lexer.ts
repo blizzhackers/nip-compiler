@@ -35,6 +35,7 @@ export class Lexer {
       if (ch === '(') { this.addToken(TokenType.LeftParen, '('); continue; }
       if (ch === ')') { this.addToken(TokenType.RightParen, ')'); continue; }
       if (ch === '#') { this.addToken(TokenType.Hash, '#'); continue; }
+      if (ch === ',') { this.addToken(TokenType.Comma, ','); continue; }
       if (ch === '+') { this.addToken(TokenType.Plus, '+'); continue; }
       if (ch === '-') {
         if (this.isDigit(this.peek(1)) && this.canBeUnaryMinus()) {

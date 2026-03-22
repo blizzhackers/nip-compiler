@@ -224,9 +224,17 @@ export class Parser {
       return expr;
     }
 
-    // Keyword: [identifier]
+    // Keyword: [identifier] — may be followed by in() or notin()
     if (this.check(TokenType.LeftBracket)) {
-      return this.parseKeyword();
+      const keyword = this.parseKeyword();
+      // [keyword]in(val1,val2,...) → ([keyword]==val1||[keyword]==val2||...)
+      // [keyword]notin(val1,val2,...) → ([keyword]!=val1&&[keyword]!=val2&&...)
+      if (this.check(TokenType.Identifier) && (this.peek().value === 'in' || this.peek().value === 'notin')) {
+        const isNotIn = this.peek().value === 'notin';
+        this.advance(); // consume in/notin
+        return this.parseInList(keyword, isNotIn);
+      }
+      return keyword;
     }
 
     // Number literal
@@ -254,6 +262,61 @@ export class Parser {
       `Unexpected token '${tok.value || tok.type}'`,
       tok.line, tok.col, tok.pos,
     );
+  }
+
+  private parseInList(keyword: KeywordExprNode, isNotIn: boolean): ExprNode {
+    this.expect(TokenType.LeftParen);
+    const values: ExprNode[] = [];
+
+    while (!this.check(TokenType.RightParen) && !this.check(TokenType.EOF)) {
+      if (values.length > 0) {
+        this.expect(TokenType.Comma);
+      }
+      if (this.check(TokenType.Number)) {
+        values.push({
+          kind: NodeKind.NumberLiteral,
+          value: Number(this.advance().value),
+          loc: this.loc(),
+        });
+      } else if (this.check(TokenType.Identifier)) {
+        values.push({
+          kind: NodeKind.Identifier,
+          name: this.advance().value.toLowerCase(),
+          loc: this.loc(),
+        });
+      } else {
+        break;
+      }
+    }
+
+    this.expect(TokenType.RightParen);
+
+    if (values.length === 0) {
+      throw new ParseError('Empty in() list', keyword.loc.line, keyword.loc.col, keyword.loc.pos);
+    }
+
+    const op: BinaryOp = isNotIn ? '!=' : '==';
+    const joinOp: BinaryOp = isNotIn ? '&&' : '||';
+
+    const comparisons = values.map(v => ({
+      kind: NodeKind.BinaryExpr as const,
+      op,
+      left: keyword as ExprNode,
+      right: v,
+      loc: keyword.loc,
+    }));
+
+    let result: ExprNode = comparisons[0];
+    for (let i = 1; i < comparisons.length; i++) {
+      result = {
+        kind: NodeKind.BinaryExpr as const,
+        op: joinOp,
+        left: result,
+        right: comparisons[i],
+        loc: keyword.loc,
+      };
+    }
+    return result;
   }
 
   private parseKeyword(): KeywordExprNode {

@@ -26,6 +26,7 @@ export enum TokenType {
 
   // Structural
   Hash = 'Hash',
+  Comma = 'Comma',
   Comment = 'Comment',
   EOF = 'EOF',
 }
