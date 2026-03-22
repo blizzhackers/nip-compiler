@@ -369,7 +369,8 @@ export class Emitter {
 
     // 2. If unid → maybe. If identified → check magical stats.
     if (magicalGroups.length > 0 && firstMagicalSource) {
-      lines.push('if(!_id)_r=-1;');
+      const maybeId = this.getSourceId(firstMagicalSource);
+      lines.push(`if(!_id)_r=${-(maybeId + 1)};`);
       lines.push('else{');
 
       // 3. Magical rules (only reached when identified)
