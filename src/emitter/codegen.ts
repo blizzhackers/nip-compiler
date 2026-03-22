@@ -131,10 +131,11 @@ export class CodeGen {
     const key = Array.isArray(stat) ? `${stat[0]}_${stat[1]}` : stat;
     if (hoisted?.has(key)) return hoisted.get(key)!;
 
+    // |0 hints SpiderMonkey that getStatEx returns int32
     if (Array.isArray(stat)) {
-      return `item.getStatEx(${stat[0]},${stat[1]})`;
+      return `(item.getStatEx(${stat[0]},${stat[1]})|0)`;
     }
-    return `item.getStatEx(${stat})`;
+    return `(item.getStatEx(${stat})|0)`;
   }
 
   private resolveIdentifier(name: string, keyword: string): number | null {

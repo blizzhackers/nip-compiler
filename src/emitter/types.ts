@@ -57,4 +57,5 @@ export interface EmitterConfig {
   aliases: AliasMapSet;
   includeSourceComments?: boolean;
   dispatchStrategy?: DispatchStrategy;
+  prettyPrint?: boolean;
 }

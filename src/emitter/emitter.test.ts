@@ -174,13 +174,13 @@ describe('CodeGen', () => {
   it('emits stat keyword', () => {
     const line = parser.parseLine('[name] == ring # [strength] >= 20');
     const js = codegen.emitStatExpr(line.stats!.expr);
-    assert.strictEqual(js, '(item.getStatEx(0)>=20)');
+    assert.strictEqual(js, '((item.getStatEx(0)|0)>=20)');
   });
 
   it('emits stat addition', () => {
     const line = parser.parseLine('[name] == ring # [strength] + [dexterity] >= 30');
     const js = codegen.emitStatExpr(line.stats!.expr);
-    assert.strictEqual(js, '((item.getStatEx(0)+item.getStatEx(2))>=30)');
+    assert.strictEqual(js, '(((item.getStatEx(0)|0)+(item.getStatEx(2)|0))>=30)');
   });
 
   it('emits AND conjunction', () => {
@@ -201,7 +201,7 @@ describe('CodeGen', () => {
     const line = parser.parseLine('[name] == ring # [fcr] == 10');
     const hoisted = new Map<number | string, string>([[105, '_h0']]);
     const js = codegen.emitStatExprWithHoisted(line.stats!.expr, hoisted);
-    assert.strictEqual(js, '(_h0===10)');
+    assert.strictEqual(js, '(_h0===10)'); // hoisted var already has |0
   });
 });
 

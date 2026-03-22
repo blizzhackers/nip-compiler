@@ -8,6 +8,7 @@ import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
 import { AliasMapSet, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
+import { formatJs } from './formatter.js';
 
 export class Emitter {
   private analyzer: Analyzer;
@@ -90,7 +91,8 @@ export class Emitter {
     lines.push('return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
     lines.push('})');
 
-    return lines.join('\n');
+    const raw = lines.join('\n');
+    return this.config.prettyPrint ? formatJs(raw) : raw;
   }
 
   private get useObjectLookup(): boolean {
@@ -129,7 +131,7 @@ export class Emitter {
 
   private emitSwitchDispatch(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
     if (plan.classidGroups.size > 0) {
-      lines.push('switch(item.classid){');
+      lines.push('switch(item.classid|0){');
       for (const [classid, qualityMap] of plan.classidGroups) {
         lines.push(`case ${classid}:{`);
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
@@ -139,7 +141,7 @@ export class Emitter {
     }
 
     if (plan.typeGroups.size > 0) {
-      lines.push('switch(item.itemType){');
+      lines.push('switch(item.itemType|0){');
       for (const [type, qualityMap] of plan.typeGroups) {
         lines.push(`case ${type}:{`);
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
@@ -196,7 +198,7 @@ export class Emitter {
     const anyQuality = qualityMap.get(null);
 
     if (fixedQualities.length > 0) {
-      lines.push('switch(item.quality){');
+      lines.push('switch(item.quality|0){');
       for (const [quality, rules] of fixedQualities) {
         lines.push(`case ${quality}:{`);
         this.emitHoistedGroup(lines, rules, mqSources, isTier);
@@ -239,9 +241,9 @@ export class Emitter {
         const varName = `_h${varIdx++}`;
         hoisted.set(key, varName);
         if (Array.isArray(stat)) {
-          lines.push(`var ${varName}=item.getStatEx(${stat[0]},${stat[1]});`);
+          lines.push(`var ${varName}=item.getStatEx(${stat[0]},${stat[1]})|0;`);
         } else {
-          lines.push(`var ${varName}=item.getStatEx(${stat});`);
+          lines.push(`var ${varName}=item.getStatEx(${stat})|0;`);
         }
       }
     }
