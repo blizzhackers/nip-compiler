@@ -276,8 +276,9 @@ export class Emitter {
       }
     }
 
-    // Hoist stats that appear 2+ times
+    // Build hoisted var map (declarations emitted later, after unid bail)
     const hoisted = new Map<number | string, string>();
+    const hoistedDecls: string[] = [];
     let varIdx = 0;
     for (const [name, count] of statFreq) {
       if (count >= 2) {
@@ -287,11 +288,9 @@ export class Emitter {
         if (hoisted.has(key)) continue;
         const varName = `_h${varIdx++}`;
         hoisted.set(key, varName);
-        if (Array.isArray(stat)) {
-          lines.push(`var ${varName}=i.getStatEx(${stat[0]},${stat[1]})|0;`);
-        } else {
-          lines.push(`var ${varName}=i.getStatEx(${stat})|0;`);
-        }
+        hoistedDecls.push(Array.isArray(stat)
+          ? `var ${varName}=i.getStatEx(${stat[0]},${stat[1]})|0;`
+          : `var ${varName}=i.getStatEx(${stat})|0;`);
       }
     }
 
@@ -320,7 +319,8 @@ export class Emitter {
     const groups = this.groupByFlagResidual(alive);
 
     if (isTier) {
-      // Tier functions: no unid optimization, just emit all rules
+      // Tier functions: no unid optimization, emit hoisted vars + all rules
+      for (const decl of hoistedDecls) lines.push(decl);
       for (const group of groups) {
         if (group.flagCondition) {
           lines.push(`if(${group.flagCondition}){`);
@@ -356,6 +356,9 @@ export class Emitter {
       if (magicalRules.length > 0) magicalGroups.push({ ...group, rules: magicalRules });
     }
 
+    // Hoisted vars first (shared across base + magical rules)
+    for (const decl of hoistedDecls) lines.push(decl);
+
     // 1. Base-stat rules (always run — defense, damage visible on unid)
     for (const group of baseGroups) {
       if (group.flagCondition) {
@@ -367,11 +370,10 @@ export class Emitter {
       }
     }
 
-    // 2. If unid → maybe. If identified → check magical stats.
     if (magicalGroups.length > 0 && firstMagicalSource) {
+      // 2. Unid → return maybe immediately, skip all magical comparisons
       const maybeId = this.getSourceId(firstMagicalSource);
-      lines.push(`if(!_id)_r=${-(maybeId + 1)};`);
-      lines.push('else{');
+      lines.push(`if(!_id)return ${-(maybeId + 1)};`);
 
       // 3. Magical rules (only reached when identified)
       for (const group of magicalGroups) {
@@ -383,7 +385,6 @@ export class Emitter {
           for (const rule of group.rules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
         }
       }
-      lines.push('}');
     }
   }
 
