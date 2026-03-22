@@ -60,8 +60,8 @@ function sidKey(name: string): string {
 }
 
 function createOriginalNTIP(): { addLine: (line: string, file?: string) => void; checkItem: (item: any, verbose?: boolean) => any } {
-  const aliasSource = readFileSync(join(ROOT, 'kolbot/d2bs/kolbot/libs/core/GameData/NTItemAlias.js'), 'utf-8');
-  const parserSource = readFileSync(join(ROOT, 'kolbot/d2bs/kolbot/libs/core/NTItemParser.js'), 'utf-8');
+  const aliasSource = readFileSync(join(ROOT, 'src/emitter/reference/NTItemAlias.js'), 'utf-8');
+  const parserSource = readFileSync(join(ROOT, 'src/emitter/reference/NTItemParser.js'), 'utf-8');
 
   const ctx: Record<string, any> = {
     includeIfNotIncluded: () => {},
@@ -120,24 +120,67 @@ function createOurEmitter(nipLines: string[], filename: string) {
 }
 
 const TEST_LINES = [
+  // Unique rings
   '[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25 // soj',
   '[name] == ring && [quality] == unique # [maxstamina] == 50 && [lifeleech] >= 3 // bk',
   '[name] == ring && [quality] == unique # [dexterity] == 20 && [tohit] == 250 // raven',
   '[name] == ring && [quality] == unique # [maxhp] == 40 && [magicdamagereduction] == 15 // dwarf',
+  '[name] == ring && [quality] == unique # [itemabsorblightpercent] >= 20 || [itemmagicbonus] >= 20 && [itemabsorblightpercent] >= 10 // wisp',
+  // Rare rings
   '[name] == ring && [quality] == rare # [fcr] == 10 && [tohit] >= 90 && [maxhp] >= 30 && [maxmana] >= 60 // bvc ring',
   '[name] == ring && [quality] == rare # [tohit] >= 100 && [strength]+[dexterity] >= 30 // dual stat',
+  '[name] == ring && [quality] == rare # [fcr] == 10 && [dexterity] >= 12 && [maxhp] >= 30 && ([fireresist] >= 20 || [lightresist] >= 20 || [fireresist] >= 9 && [lightresist] >= 9) // hdin ring',
+  // Magic rings
+  '[name] == ring && [quality] == magic # [fcr] == 10 && [maxmana] >= 100 // caster ring',
+  // Unique amulets
   '[name] == amulet && [quality] == unique # [strength] == 5 && [fireresist] >= 30 // mara',
   '[name] == amulet && [quality] == unique # [lightresist] == 35 // highlord',
   '[name] == amulet && [quality] == unique # [dexterity] == 25 // cats eye',
+  '[name] == amulet && [quality] == unique # [tohit] >= 450 && [plusdefense] >= 350 && [fireresist] >= 35 // metalgrid',
+  // Magic amulet
+  '[name] == amulet && [quality] == magic # [itemmagicbonus] == 50 // magic mf ammy',
+  // Unique armors — non-eth
   '[name] == serpentskinarmor && [quality] == unique # [fireresist] == 35 && [magicdamagereduction] == 13 // vipermagi',
+  // Unique armors — eth required
   '[name] == wirefleece && [quality] == unique && [flag] == ethereal # [enhanceddefense] >= 200 // eth glad bane',
-  '[name] == sacredarmor && [quality] == unique # [strength] >= 20 // tyraels',
   '[name] == sacredarmor && [quality] == unique && [flag] == ethereal # [enhanceddefense] >= 220 // eth templars',
-  '[type] == armor && [quality] == normal && [flag] == ethereal # [sockets] == 4 && [defense] >= 1000',
-  '[flag] == runeword # [sockets] == 4',
+  '[name] == balrogskin && [quality] == unique && [flag] == ethereal # [itemallskills] == 2 && [enhanceddefense] >= 180 // eth arkaines',
+  '[name] == mesharmor && [quality] == unique && [flag] == ethereal # [enhanceddefense] == 220 // eth shaftstop',
+  // Unique armors — no eth restriction
+  '[name] == sacredarmor && [quality] == unique # [strength] >= 20 // tyraels',
+  // Unique armors — non-eth required
+  '[name] == duskshroud && [quality] == unique && [flag] != ethereal # [passivecoldmastery] == 15 && [skillblizzard] == 3 // ormus cold',
+  '[name] == duskshroud && [quality] == unique && [flag] != ethereal # [passivefiremastery] == 15 && [skillfireball] == 3 // ormus fire',
+  // White bases
+  '([name] == duskshroud || [name] == wyrmhide || [name] == archonplate) && [quality] <= superior && [flag] != ethereal # ([sockets] == 3 || [sockets] == 4)',
   '[name] == monarch && [quality] <= superior && [flag] != ethereal # [sockets] == 4',
+  '[name] == monarch && [quality] == normal && [flag] == ethereal # [sockets] == 0 && [defense] == 148 || [sockets] == 4 && [defense] == 148',
+  // Type-based rules
+  '[type] == armor && [quality] == normal && [flag] == ethereal # [sockets] == 4 && [defense] >= 1000',
+  '[type] == armor && [quality] == rare && [flag] == ethereal # [enhanceddefense] >= 150 && [sockets] == 2',
+  '[type] == armor && [quality] == magic && [flag] != ethereal # [sockets] == 4 && [maxhp] >= 100',
+  // Catch-all
+  '[flag] == runeword # [sockets] == 4',
+  // Gold
   '[name] == gold # [gold] >= 500',
-  '([name] == duskshroud || [name] == wyrmhide || [name] == archonplate) && [quality] <= superior && [flag] != ethereal # [sockets] == 4',
+  // Shields
+  '[name] == monarch && [quality] == unique # [enhanceddefense] >= 150 // stormshield',
+  // Weapons
+  '[name] == phaseblade && [quality] == unique # [enhanceddefense] >= 300 // grief base',
+  '[name] == berserkeraxe && [quality] == unique && [flag] == ethereal # [enhanceddamage] >= 370 // eth beast',
+  // Helms
+  '[name] == shako && [quality] == unique # [itemallskills] == 2 // harlequin',
+  '[name] == demonhead && [quality] == unique && [flag] != ethereal # [strength] == 30 && [enhanceddefense] == 150 // andys',
+  // Gloves/boots/belts
+  '[name] == vampirebonegloves && [quality] == unique && [flag] != ethereal # [enhanceddefense] == 120 && [strength] == 15 // draculs',
+  '[name] == mithrilcoil && [quality] == unique && [flag] != ethereal # [damageresist] == 15 && [vitality] == 40 // verdungos',
+  // Set items
+  '[name] == lacqueredplate && [quality] == set // tal armor',
+  '[name] == swirlingcrystal && [quality] == set # [skillcoldmastery] == 2 // tal weapon',
+  // Runes
+  '[name] == berrune // ber rune',
+  '[name] == jahrune // jah rune',
+  '[name] == istrune // ist rune',
 ];
 
 interface TestItem {
@@ -146,31 +189,87 @@ interface TestItem {
 }
 
 const TEST_ITEMS: TestItem[] = [
+  // --- Unique rings ---
   { label: 'SoJ', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('itemmaxmanapercent')]: 25 } } },
   { label: 'BK ring', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('maxstamina')]: 50, [sidKey('lifeleech')]: 5 } } },
   { label: 'Raven Frost', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('dexterity')]: 20, [sidKey('tohit')]: 250 } } },
   { label: 'Dwarf Star', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('maxhp')]: 40, [sidKey('magicdamagereduction')]: 15 } } },
+  { label: 'Wisp (absorb path)', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('itemabsorblightpercent')]: 20 } } },
+  { label: 'Wisp (mf+absorb path)', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('itemmagicbonus')]: 25, [sidKey('itemabsorblightpercent')]: 10 } } },
+  { label: 'bad unique ring (no match)', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: {} } },
+  { label: 'imperfect BK (lifeleech too low)', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: { [sidKey('maxstamina')]: 50, [sidKey('lifeleech')]: 2 } } },
+  // --- Rare rings ---
   { label: 'BVC rare ring', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10, [sidKey('tohit')]: 100, [sidKey('maxhp')]: 35, [sidKey('maxmana')]: 65 } } },
   { label: 'dual stat melee ring', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('tohit')]: 110, [sidKey('strength')]: 15, [sidKey('dexterity')]: 16 } } },
-  { label: 'Mara amulet', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), stats: { [sidKey('strength')]: 5, [sidKey('fireresist')]: 30 } } },
+  { label: 'hdin ring (fire res path)', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10, [sidKey('dexterity')]: 15, [sidKey('maxhp')]: 35, [sidKey('fireresist')]: 25 } } },
+  { label: 'hdin ring (dual res path)', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10, [sidKey('dexterity')]: 12, [sidKey('maxhp')]: 30, [sidKey('fireresist')]: 10, [sidKey('lightresist')]: 10 } } },
+  { label: 'bad rare ring (no match)', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10 } } },
+  // --- Magic rings ---
+  { label: 'magic caster ring', mock: { classid: cid('ring'), quality: qid('magic'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10, [sidKey('maxmana')]: 110 } } },
+  { label: 'bad magic ring (no match)', mock: { classid: cid('ring'), quality: qid('magic'), itemType: tid('ring'), stats: { [sidKey('maxmana')]: 50 } } },
+  // --- Unique amulets ---
+  { label: 'Mara', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), stats: { [sidKey('strength')]: 5, [sidKey('fireresist')]: 30 } } },
   { label: 'Highlord', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), stats: { [sidKey('lightresist')]: 35 } } },
   { label: "Cat's Eye", mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), stats: { [sidKey('dexterity')]: 25 } } },
+  { label: 'Metalgrid', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), stats: { [sidKey('tohit')]: 500, [sidKey('plusdefense')]: 400, [sidKey('fireresist')]: 35 } } },
+  // --- Magic amulet ---
+  { label: 'magic 50mf ammy', mock: { classid: cid('amulet'), quality: qid('magic'), itemType: tid('amulet'), stats: { [sidKey('itemmagicbonus')]: 50 } } },
+  { label: 'bad magic ammy (no match)', mock: { classid: cid('amulet'), quality: qid('magic'), itemType: tid('amulet'), stats: { [sidKey('itemmagicbonus')]: 20 } } },
+  // --- Unique armors ---
   { label: 'Vipermagi', mock: { classid: cid('serpentskinarmor'), quality: qid('unique'), itemType: tid('armor'), stats: { [sidKey('fireresist')]: 35, [sidKey('magicdamagereduction')]: 13 } } },
   { label: 'eth Glad Bane', mock: { classid: cid('wirefleece'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 200 } } },
-  { label: 'non-eth Glad Bane', mock: { classid: cid('wirefleece'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('enhanceddefense')]: 200 } } },
+  { label: 'non-eth Glad Bane (no match)', mock: { classid: cid('wirefleece'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('enhanceddefense')]: 200 } } },
   { label: "Tyrael's", mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), stats: { [sidKey('strength')]: 20 } } },
   { label: "eth Templar's", mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 220 } } },
-  { label: 'eth elite 4os armor', mock: { classid: cid('sacredarmor'), quality: qid('normal'), itemType: tid('armor'), itemclass: 2, flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 1200 } } },
-  { label: 'runeword 4 sockets', mock: { classid: 100, quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 4 } } },
+  { label: "eth Arkaine's", mock: { classid: cid('balrogskin'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('itemallskills')]: 2, [sidKey('enhanceddefense')]: 190 } } },
+  { label: 'eth Shaftstop', mock: { classid: cid('mesharmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 220 } } },
+  { label: 'non-eth Shaftstop (no match)', mock: { classid: cid('mesharmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('enhanceddefense')]: 220 } } },
+  // --- Ormus ---
+  { label: 'Ormus cold (non-eth)', mock: { classid: cid('duskshroud'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('passivecoldmastery')]: 15, [sidKey('skillblizzard')]: 3 } } },
+  { label: 'Ormus fire (non-eth)', mock: { classid: cid('duskshroud'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('passivefiremastery')]: 15, [sidKey('skillfireball')]: 3 } } },
+  { label: 'eth Ormus (no match for non-eth rules)', mock: { classid: cid('duskshroud'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('passivecoldmastery')]: 15, [sidKey('skillblizzard')]: 3 } } },
+  // --- White bases ---
   { label: '4os non-eth monarch', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
-  { label: 'gold 600', mock: { classid: cid('gold'), quality: qid('normal'), itemType: tid('gold'), stats: { [sidKey('gold')]: 600 } } },
-  { label: 'normal ring (no match)', mock: { classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') } },
-  { label: 'random junk (no match)', mock: { classid: 999, quality: qid('normal'), itemType: 99 } },
-  { label: 'unique ring no stats (no match)', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), stats: {} } },
-  { label: 'unidentified SoJ', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: { [sidKey('itemmaxmanapercent')]: 25 } } },
-  { label: 'unidentified unique ring', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: {} } },
+  { label: '3os non-eth monarch (no match)', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('sockets')]: 3 } } },
   { label: '4os non-eth archonplate', mock: { classid: cid('archonplate'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
-  { label: '4os non-eth duskshroud', mock: { classid: cid('duskshroud'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
+  { label: '3os non-eth duskshroud', mock: { classid: cid('duskshroud'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 3 } } },
+  { label: '4os eth monarch', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 148 } } },
+  { label: 'eth 0os monarch def 148', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 0, [sidKey('defense')]: 148 } } },
+  // --- Type-based rules ---
+  { label: 'eth elite 4os armor high def', mock: { classid: cid('sacredarmor'), quality: qid('normal'), itemType: tid('armor'), itemclass: 2, flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 1200 } } },
+  { label: 'eth rare armor ed 150 2os', mock: { classid: cid('archonplate'), quality: qid('rare'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 160, [sidKey('sockets')]: 2 } } },
+  { label: 'non-eth rare armor (no match for eth rule)', mock: { classid: cid('archonplate'), quality: qid('rare'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('enhanceddefense')]: 160, [sidKey('sockets')]: 2 } } },
+  { label: 'magic 4os armor 100hp', mock: { classid: cid('archonplate'), quality: qid('magic'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 4, [sidKey('maxhp')]: 100 } } },
+  // --- Catch-all ---
+  { label: 'runeword 4os', mock: { classid: 100, quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'runeword 3os (no match)', mock: { classid: 100, quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 3 } } },
+  // --- Gold ---
+  { label: 'gold 600', mock: { classid: cid('gold'), quality: qid('normal'), itemType: tid('gold'), stats: { [sidKey('gold')]: 600 } } },
+  { label: 'gold 100 (no match)', mock: { classid: cid('gold'), quality: qid('normal'), itemType: tid('gold'), stats: { [sidKey('gold')]: 100 } } },
+  // --- Helms ---
+  { label: 'Harlequin (shako)', mock: { classid: cid('shako'), quality: qid('unique'), itemType: tid('helm'), stats: { [sidKey('itemallskills')]: 2 } } },
+  { label: "Andy's non-eth", mock: { classid: cid('demonhead'), quality: qid('unique'), itemType: tid('helm'), flags: 0x10, stats: { [sidKey('strength')]: 30, [sidKey('enhanceddefense')]: 150 } } },
+  // --- Gloves/belts ---
+  { label: "Dracul's non-eth", mock: { classid: cid('vampirebonegloves'), quality: qid('unique'), itemType: tid('gloves'), flags: 0x10, stats: { [sidKey('enhanceddefense')]: 120, [sidKey('strength')]: 15 } } },
+  { label: "Verdungo's non-eth", mock: { classid: cid('mithrilcoil'), quality: qid('unique'), itemType: tid('belt'), flags: 0x10, stats: { [sidKey('damageresist')]: 15, [sidKey('vitality')]: 40 } } },
+  // --- Set items ---
+  { label: 'Tal armor', mock: { classid: cid('lacqueredplate'), quality: qid('set'), itemType: tid('armor') } },
+  { label: 'Tal weapon (cold mastery 2)', mock: { classid: cid('swirlingcrystal'), quality: qid('set'), itemType: tid('orb'), stats: { [sidKey('skillcoldmastery')]: 2 } } },
+  // --- Runes ---
+  { label: 'Ber rune', mock: { classid: cid('berrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Jah rune', mock: { classid: cid('jahrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Ist rune', mock: { classid: cid('istrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Eld rune (no match)', mock: { classid: cid('eldrune'), quality: qid('normal'), itemType: tid('rune') } },
+  // --- Unidentified items ---
+  { label: 'unidentified SoJ', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: { [sidKey('itemmaxmanapercent')]: 25 } } },
+  { label: 'unidentified unique ring empty stats', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: {} } },
+  { label: 'unidentified rare ring', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), flags: 0, stats: {} } },
+  { label: 'unidentified Mara', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), flags: 0, stats: { [sidKey('strength')]: 5, [sidKey('fireresist')]: 30 } } },
+  // --- No match ---
+  { label: 'normal ring', mock: { classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') } },
+  { label: 'random unknown classid', mock: { classid: 999, quality: qid('normal'), itemType: 99 } },
+  { label: 'low quality amulet', mock: { classid: cid('amulet'), quality: qid('lowquality'), itemType: tid('amulet') } },
+  { label: 'normal sword', mock: { classid: cid('broadsword'), quality: qid('normal'), itemType: tid('sword') } },
 ];
 
 describe('Cross-validation: our emitter vs original NTIP', () => {

@@ -165,8 +165,15 @@ export class Emitter {
       }
     }
 
+    // Sort: property-only rules first (no stat checks = cheaper), then stat rules
+    const sorted = [...rules].sort((a, b) => {
+      const aHasStats = a.statExpr !== null ? 1 : 0;
+      const bHasStats = b.statExpr !== null ? 1 : 0;
+      return aHasStats - bHasStats;
+    });
+
     // Group consecutive rules by shared flag residual to avoid repeated getFlag calls
-    const groups = this.groupByFlagResidual(rules);
+    const groups = this.groupByFlagResidual(sorted);
 
     for (const group of groups) {
       if (group.flagCondition) {

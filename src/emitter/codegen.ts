@@ -96,6 +96,10 @@ export class CodeGen {
       && (expr.op === '==' || expr.op === '!=')) {
       const fn = CALLABLE_FN[expr.left.name];
       const value = this.emitExpr(expr.right, section, hoisted, expr.left.name);
+      // Reuse the hoisted `identified` var for [flag] == identified (0x10 = 16)
+      if (expr.left.name === 'flag' && value === '16') {
+        return expr.op === '!=' ? '(!identified)' : 'identified';
+      }
       const call = `${fn}(${value})`;
       return expr.op === '!=' ? `(!${call})` : call;
     }
