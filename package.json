@@ -4,10 +4,14 @@
   "description": "NIP file lexer, parser and code generator for Diablo 2 item filtering",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "nip-compile": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "node --import tsx --test 'src/**/*.test.ts'",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "compile": "tsx src/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
