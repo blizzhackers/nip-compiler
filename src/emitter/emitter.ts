@@ -21,7 +21,6 @@ export class Emitter {
   private fileTable: string[] = [];
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
-  private emittingHandler = false;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -70,7 +69,6 @@ export class Emitter {
     lines.push('var checkQuantityOwned=helpers.checkQuantityOwned;');
     lines.push('var me=helpers.me;');
     lines.push('var getBaseStat=helpers.getBaseStat;');
-    lines.push('var _si=-1;');
     lines.push('');
 
     // MaxQuantity helper references
@@ -151,10 +149,9 @@ export class Emitter {
       this.emitLookupTables(lines, plan, mqSources);
     }
 
-    lines.push('function checkItem(item,verbose){');
-    lines.push('var identified=item.getFlag(16);');
-    lines.push('var result=0;_si=-1;');
-    lines.push('function _m(i){_si=i;if(verbose){var r=_s[i];return{result:1,file:_f[r[0]],line:r[1]};}return 1;}');
+    // Inner function: returns positive sourceId+1 for match, negative -(sourceId+1) for maybe, 0 for no match
+    lines.push('function _ci(item,identified){');
+    lines.push('var result=0;');
 
     if (this.useObjectLookup) {
       this.emitLookupDispatch(lines, plan);
@@ -168,8 +165,15 @@ export class Emitter {
       }
     }
 
-    lines.push('if(verbose){var _e=_si>=0?_s[_si]:null;return{result:result,file:_e?_f[_e[0]]:null,line:_e?_e[1]:0};}');
     lines.push('return result;');
+    lines.push('}');
+
+    // Public wrapper: maps raw IDs to 0/1/-1 API, handles verbose
+    lines.push('function checkItem(item,verbose){');
+    lines.push('var r=_ci(item,item.getFlag(16));');
+    lines.push('if(!verbose)return r>0?1:r<0?-1:0;');
+    lines.push('var id=(r>0?r:-r)-1;var e=id>=0?_s[id]:null;');
+    lines.push('return{result:r>0?1:r<0?-1:0,file:e?_f[e[0]]:null,line:e?e[1]:0};');
     lines.push('}');
     return lines.join('\n');
   }
@@ -198,7 +202,7 @@ export class Emitter {
 
   private emitLookupTables(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
     let fnIdx = 0;
-    // _si is shared via closure — handlers set it, checkItem reads it
+    // Handlers return positive sourceId+1 for match, negative for maybe
     const emitTable = (groups: Map<number, Map<number | null, GroupedRule[]>>, tableName: string): void => {
       if (groups.size === 0) return;
       lines.push(`var ${tableName}={};`);
@@ -206,9 +210,7 @@ export class Emitter {
         const fnName = `_f${fnIdx++}`;
         lines.push(`function ${fnName}(item,identified){`);
         lines.push('var result=0;');
-        this.emittingHandler = true;
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
-        this.emittingHandler = false;
         lines.push('return result;');
         lines.push('}');
         lines.push(`${tableName}[${key}]=${fnName};`);
@@ -224,8 +226,8 @@ export class Emitter {
       lines.push(`var _fn=${tableName}[${keyExpr}];`);
       lines.push('if(_fn){');
       lines.push('var _r=_fn(item,identified);');
-      lines.push('if(_r===1){return _m(_si);}');
-      lines.push('if(_r===-1){result=-1;}');
+      lines.push('if(_r>0)return _r;');
+      lines.push('if(_r<0)result=_r;');
       lines.push('}');
     };
 
@@ -420,15 +422,12 @@ export class Emitter {
 
   private emitMatch(source: string): string {
     const id = this.getSourceId(source);
-    if (this.useObjectLookup && this.emittingHandler) {
-      return `_si=${id};return 1;`;
-    }
-    return `return _m(${id});`;
+    return `return ${id + 1};`;
   }
 
   private emitMaybe(source: string): string {
     const id = this.getSourceId(source);
-    return `result=-1;_si=${id};`;
+    return `result=${-(id + 1)};`;
   }
 
   private emitCheckRule(
