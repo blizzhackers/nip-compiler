@@ -332,7 +332,7 @@ describe('Benchmark: our emitter vs original NTIP', () => {
     items = TEST_ITEMS.map(t => makeItem(t.mock));
   });
 
-  it('benchmarks both (fair: both eval\'d, no VM penalty)', () => {
+  it('benchmarks both (original in VM, ours direct)', () => {
     const iterations = 10000;
     const totalChecks = iterations * items.length;
 
@@ -359,9 +359,10 @@ describe('Benchmark: our emitter vs original NTIP', () => {
     const opsOurs = Math.round(totalChecks / (elapsedOurs / 1000));
     const speedup = (elapsedOrig / elapsedOurs).toFixed(1);
 
-    console.log(`  Original NTIP: ${elapsedOrig.toFixed(1)}ms (${opsOrig.toLocaleString()} ops/s)`);
-    console.log(`  Our emitter:   ${elapsedOurs.toFixed(1)}ms (${opsOurs.toLocaleString()} ops/s)`);
-    console.log(`  Speedup:       ${speedup}x faster`);
+    console.log(`  Original NTIP (VM):  ${elapsedOrig.toFixed(1)}ms (${opsOrig.toLocaleString()} ops/s)`);
+    console.log(`  Our emitter (eval):  ${elapsedOurs.toFixed(1)}ms (${opsOurs.toLocaleString()} ops/s)`);
+    console.log(`  Speedup:             ${speedup}x (includes ~8x VM penalty on original)`);
+    console.log(`  Estimated fair:      ~${(parseFloat(speedup) / 8 * 1).toFixed(1)}x algorithmic speedup`);
     console.log(`  (${totalChecks.toLocaleString()} checks, ${items.length} items × ${iterations.toLocaleString()} iterations)`);
   });
 });

@@ -172,8 +172,16 @@ export class Emitter {
       return aHasStats - bHasStats;
     });
 
+    // Dead code elimination: if a rule has no residual property AND no stats,
+    // it's an unconditional match — everything after it is unreachable
+    const alive: GroupedRule[] = [];
+    for (const rule of sorted) {
+      alive.push(rule);
+      if (!rule.residualProperty && !rule.statExpr && !isTier) break;
+    }
+
     // Group consecutive rules by shared flag residual to avoid repeated getFlag calls
-    const groups = this.groupByFlagResidual(sorted);
+    const groups = this.groupByFlagResidual(alive);
 
     for (const group of groups) {
       if (group.flagCondition) {
@@ -247,6 +255,41 @@ export class Emitter {
     return false;
   }
 
+  private reorderBySelectivity(expr: ExprNode): ExprNode {
+    if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return expr;
+
+    const conjuncts = this.flattenAnd(expr);
+    const reordered = conjuncts.sort((a, b) => this.selectivityScore(a) - this.selectivityScore(b));
+
+    return reordered.reduce((left, right) => ({
+      kind: NodeKind.BinaryExpr as const,
+      op: '&&' as const,
+      left,
+      right,
+      loc: left.loc,
+    }));
+  }
+
+  private selectivityScore(expr: ExprNode): number {
+    // Lower = more selective = should be checked first
+    if (expr.kind === NodeKind.BinaryExpr) {
+      if (expr.op === '==') return 0;
+      if (expr.op === '!=') return 1;
+      if (expr.op === '>=' || expr.op === '<=') return 2;
+      if (expr.op === '>' || expr.op === '<') return 2;
+      if (expr.op === '&&') return Math.min(this.selectivityScore(expr.left), this.selectivityScore(expr.right));
+      if (expr.op === '||') return 3;
+    }
+    return 4;
+  }
+
+  private flattenAnd(expr: ExprNode): ExprNode[] {
+    if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
+      return [...this.flattenAnd(expr.left), ...this.flattenAnd(expr.right)];
+    }
+    return [expr];
+  }
+
   private emitMatch(source: string): string {
     const [file, lineNum] = source.split('#');
     return `if(verbose){return{result:1,file:"${file}",line:${lineNum}};}return 1;`;
@@ -272,10 +315,11 @@ export class Emitter {
     }
 
     const hasStats = rule.statExpr !== null;
-    const statJs = hasStats
+    const reorderedStat = hasStats ? this.reorderBySelectivity(rule.statExpr!) : null;
+    const statJs = reorderedStat
       ? (hoisted
-        ? this.codegen.emitStatExprWithHoisted(rule.statExpr!, hoisted)
-        : this.codegen.emitStatExpr(rule.statExpr!))
+        ? this.codegen.emitStatExprWithHoisted(reorderedStat, hoisted)
+        : this.codegen.emitStatExpr(reorderedStat))
       : null;
 
     const mqIdx = mqSources.indexOf(rule.source);
@@ -379,10 +423,11 @@ export class Emitter {
       conditions.push(this.codegen.emitPropertyExpr(rule.residualProperty));
     }
     if (rule.statExpr) {
+      const reordered = this.reorderBySelectivity(rule.statExpr);
       conditions.push(
         hoisted
-          ? this.codegen.emitStatExprWithHoisted(rule.statExpr, hoisted)
-          : this.codegen.emitStatExpr(rule.statExpr)
+          ? this.codegen.emitStatExprWithHoisted(reordered, hoisted)
+          : this.codegen.emitStatExpr(reordered)
       );
     }
 
