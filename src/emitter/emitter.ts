@@ -420,6 +420,17 @@ export class Emitter {
     return [expr];
   }
 
+  private countStatFreq(expr: ExprNode, freq: Map<string, number>): void {
+    if (expr.kind === NodeKind.KeywordExpr) {
+      freq.set(expr.name, (freq.get(expr.name) ?? 0) + 1);
+    } else if (expr.kind === NodeKind.BinaryExpr) {
+      this.countStatFreq(expr.left, freq);
+      this.countStatFreq(expr.right, freq);
+    } else if (expr.kind === NodeKind.UnaryExpr) {
+      this.countStatFreq(expr.operand, freq);
+    }
+  }
+
   private emitMatch(source: string): string {
     const id = this.getSourceId(source);
     return `return ${id + 1};`;
@@ -446,10 +457,31 @@ export class Emitter {
 
     const hasStats = rule.statExpr !== null;
     const reorderedStat = hasStats ? this.reorderBySelectivity(rule.statExpr!) : null;
+
+    // Per-expression dedup: hoist stats that appear 2+ times within this expression
+    const exprHoisted = new Map<number | string, string>(hoisted ?? []);
+    if (reorderedStat) {
+      const freq = new Map<string, number>();
+      this.countStatFreq(reorderedStat, freq);
+      for (const [name, count] of freq) {
+        if (count < 2) continue;
+        const stat = this.config.aliases.stat[name];
+        const numStat = stat === undefined ? (name.includes(',') ? name.split(',').map(Number) as [number, number] : Number(name)) : stat;
+        if (typeof numStat === 'number' && isNaN(numStat)) continue;
+        const key = Array.isArray(numStat) ? `${numStat[0]}_${numStat[1]}` : typeof numStat === 'number' ? numStat : numStat;
+        if (exprHoisted.has(key)) continue;
+        const varName = `_l${exprHoisted.size}`;
+        exprHoisted.set(key, varName);
+        if (Array.isArray(numStat)) {
+          lines.push(`var ${varName}=item.getStatEx(${numStat[0]},${numStat[1]})|0;`);
+        } else {
+          lines.push(`var ${varName}=item.getStatEx(${numStat})|0;`);
+        }
+      }
+    }
+
     const statJs = reorderedStat
-      ? (hoisted
-        ? this.codegen.emitStatExprWithHoisted(reorderedStat, hoisted)
-        : this.codegen.emitStatExpr(reorderedStat))
+      ? this.codegen.emitStatExprWithHoisted(reorderedStat, exprHoisted)
       : null;
 
     const mqIdx = mqSources.indexOf(rule.source);
@@ -559,11 +591,23 @@ export class Emitter {
     }
     if (rule.statExpr) {
       const reordered = this.reorderBySelectivity(rule.statExpr);
-      conditions.push(
-        hoisted
-          ? this.codegen.emitStatExprWithHoisted(reordered, hoisted)
-          : this.codegen.emitStatExpr(reordered)
-      );
+      const exprHoisted = new Map<number | string, string>(hoisted ?? []);
+      const freq = new Map<string, number>();
+      this.countStatFreq(reordered, freq);
+      for (const [name, count] of freq) {
+        if (count < 2) continue;
+        const stat = this.config.aliases.stat[name];
+        const numStat = stat === undefined ? (name.includes(',') ? name.split(',').map(Number) as [number, number] : Number(name)) : stat;
+        if (typeof numStat === 'number' && isNaN(numStat)) continue;
+        const key = Array.isArray(numStat) ? `${numStat[0]}_${numStat[1]}` : typeof numStat === 'number' ? numStat : numStat;
+        if (exprHoisted.has(key)) continue;
+        const varName = `_l${exprHoisted.size}`;
+        exprHoisted.set(key, varName);
+        lines.push(Array.isArray(numStat)
+          ? `var ${varName}=item.getStatEx(${numStat[0]},${numStat[1]})|0;`
+          : `var ${varName}=item.getStatEx(${numStat})|0;`);
+      }
+      conditions.push(this.codegen.emitStatExprWithHoisted(reordered, exprHoisted));
     }
 
     if (conditions.length > 0) {
