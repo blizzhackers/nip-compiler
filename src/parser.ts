@@ -320,11 +320,20 @@ export class Parser {
 
   private parseKeyword(): KeywordExprNode {
     const open = this.expect(TokenType.LeftBracket);
-    const name = this.expect(TokenType.Identifier);
+    // Allow both [identifier] and [number] (numeric stat IDs)
+    let name: string;
+    if (this.check(TokenType.Identifier)) {
+      name = this.advance().value.toLowerCase();
+    } else if (this.check(TokenType.Number)) {
+      name = this.advance().value;
+    } else {
+      const tok = this.peek();
+      throw new ParseError(`Expected keyword or stat ID but got '${tok.value || tok.type}'`, tok.line, tok.col, tok.pos);
+    }
     this.expect(TokenType.RightBracket);
     return {
       kind: NodeKind.KeywordExpr,
-      name: name.value.toLowerCase(),
+      name,
       loc: { pos: open.pos, line: open.line, col: open.col },
     };
   }

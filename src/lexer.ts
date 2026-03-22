@@ -240,7 +240,8 @@ export class Lexer {
 
   private isIdentPart(ch: string): boolean {
     // apostrophe needed for D2 item names like diablo'shorn, baal'seye
-    return this.isIdentStart(ch) || this.isDigit(ch) || ch === '\'';
+    // dot needed for JS property access like me.diff, item.getStatEx
+    return this.isIdentStart(ch) || this.isDigit(ch) || ch === '\'' || ch === '.';
   }
 }
 

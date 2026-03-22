@@ -126,7 +126,13 @@ export class CodeGen {
 
   private emitStatKeyword(name: string, hoisted: Map<number | string, string> | null): string {
     const stat = this.aliases.stat[name];
-    if (stat === undefined) throw new Error(`Unknown stat: ${name}`);
+
+    // Numeric stat ID used directly: [218] → item.getStatEx(218)
+    if (stat === undefined) {
+      const num = Number(name);
+      if (!isNaN(num)) return `(item.getStatEx(${num})|0)`;
+      throw new Error(`Unknown stat: ${name}`);
+    }
 
     const key = Array.isArray(stat) ? `${stat[0]}_${stat[1]}` : stat;
     if (hoisted?.has(key)) return hoisted.get(key)!;
