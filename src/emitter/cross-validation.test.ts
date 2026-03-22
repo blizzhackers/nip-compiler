@@ -6,6 +6,7 @@ import * as vm from 'node:vm';
 import { Parser } from '../parser.js';
 import { Binder } from '../binder.js';
 import { Emitter } from './emitter.js';
+import { DispatchStrategy } from './types.js';
 import { d2Aliases } from './d2-aliases.js';
 
 const ROOT = process.cwd();
@@ -105,11 +106,11 @@ function createOriginalNTIP(): { addLine: (line: string, file?: string) => void;
   };
 }
 
-function createOurEmitter(nipLines: string[], filename: string) {
+function createOurEmitter(nipLines: string[], filename: string, strategy?: DispatchStrategy) {
   const content = nipLines.join('\n');
   const file = parser.parseFile(content, filename);
   binder.bindFile(file);
-  const emitter = new Emitter({ aliases: d2Aliases, includeSourceComments: false });
+  const emitter = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: strategy });
   const js = emitter.emit([file]);
   const factory = eval(js);
   return factory({
@@ -311,13 +312,13 @@ describe('Cross-validation: our emitter vs original NTIP', () => {
   });
 });
 
-describe('Benchmark: our emitter vs original NTIP', () => {
+describe('Benchmark: switch vs object-lookup vs original', () => {
   let original: ReturnType<typeof createOriginalNTIP>;
-  let ours: ReturnType<typeof createOurEmitter>;
+  let switchMod: ReturnType<typeof createOurEmitter>;
+  let lookupMod: ReturnType<typeof createOurEmitter>;
   let items: ReturnType<typeof makeItem>[];
 
   before(() => {
-    // Use full kolton.nip
     const koltonContent = readFileSync(join(ROOT, 'nip/kolton.nip'), 'utf-8');
     const koltonLines = koltonContent.split('\n')
       .map(l => l.trim())
@@ -327,42 +328,46 @@ describe('Benchmark: our emitter vs original NTIP', () => {
     for (const line of koltonLines) {
       try { original.addLine(line, 'kolton.nip'); } catch {}
     }
-    ours = createOurEmitter(koltonLines, 'kolton.nip');
+    switchMod = createOurEmitter(koltonLines, 'kolton.nip', DispatchStrategy.Switch);
+    lookupMod = createOurEmitter(koltonLines, 'kolton.nip', DispatchStrategy.ObjectLookup);
 
     items = TEST_ITEMS.map(t => makeItem(t.mock));
+
+    // Verify object-lookup produces same results as switch
+    for (const item of items) {
+      const sw = switchMod.checkItem(item);
+      const lu = lookupMod.checkItem(item);
+      if (sw !== lu) throw new Error(`Strategy mismatch for item: switch=${sw}, lookup=${lu}`);
+    }
   });
 
-  it('benchmarks both (original in VM, ours direct)', () => {
+  it('benchmarks all three strategies', () => {
     const iterations = 10000;
     const totalChecks = iterations * items.length;
 
-    // Warm up both
-    for (const item of items) { original.checkItem(item); ours.checkItem(item); }
-
-    const startOrig = performance.now();
-    for (let i = 0; i < iterations; i++) {
-      for (const item of items) {
-        original.checkItem(item);
-      }
+    function bench(name: string, fn: () => void): number {
+      // Warm up
+      fn();
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) fn();
+      return performance.now() - start;
     }
-    const elapsedOrig = performance.now() - startOrig;
 
-    const startOurs = performance.now();
-    for (let i = 0; i < iterations; i++) {
-      for (const item of items) {
-        ours.checkItem(item);
-      }
-    }
-    const elapsedOurs = performance.now() - startOurs;
+    const elapsedOrig = bench('original', () => { for (const item of items) original.checkItem(item); });
+    const elapsedSwitch = bench('switch', () => { for (const item of items) switchMod.checkItem(item); });
+    const elapsedLookup = bench('lookup', () => { for (const item of items) lookupMod.checkItem(item); });
 
-    const opsOrig = Math.round(totalChecks / (elapsedOrig / 1000));
-    const opsOurs = Math.round(totalChecks / (elapsedOurs / 1000));
-    const speedup = (elapsedOrig / elapsedOurs).toFixed(1);
+    const fmt = (ms: number) => {
+      const ops = Math.round(totalChecks / (ms / 1000));
+      return `${ms.toFixed(1)}ms (${ops.toLocaleString()} ops/s)`;
+    };
 
-    console.log(`  Original NTIP (VM):  ${elapsedOrig.toFixed(1)}ms (${opsOrig.toLocaleString()} ops/s)`);
-    console.log(`  Our emitter (eval):  ${elapsedOurs.toFixed(1)}ms (${opsOurs.toLocaleString()} ops/s)`);
-    console.log(`  Speedup:             ${speedup}x (includes ~8x VM penalty on original)`);
-    console.log(`  Estimated fair:      ~${(parseFloat(speedup) / 8 * 1).toFixed(1)}x algorithmic speedup`);
+    console.log(`  Original NTIP (VM):    ${fmt(elapsedOrig)}`);
+    console.log(`  Switch dispatch:       ${fmt(elapsedSwitch)}`);
+    console.log(`  Object lookup:         ${fmt(elapsedLookup)}`);
+    console.log(`  Switch vs original:    ${(elapsedOrig / elapsedSwitch).toFixed(1)}x`);
+    console.log(`  Lookup vs original:    ${(elapsedOrig / elapsedLookup).toFixed(1)}x`);
+    console.log(`  Switch vs lookup:      ${(elapsedLookup / elapsedSwitch).toFixed(1)}x`);
     console.log(`  (${totalChecks.toLocaleString()} checks, ${items.length} items × ${iterations.toLocaleString()} iterations)`);
   });
 });

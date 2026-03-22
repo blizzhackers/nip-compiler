@@ -48,7 +48,13 @@ export interface DispatchPlan {
   catchAll: GroupedRule[];
 }
 
+export const enum DispatchStrategy {
+  Switch = 'switch',
+  ObjectLookup = 'object-lookup',
+}
+
 export interface EmitterConfig {
   aliases: AliasMapSet;
   includeSourceComments?: boolean;
+  dispatchStrategy?: DispatchStrategy;
 }

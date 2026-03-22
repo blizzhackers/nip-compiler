@@ -7,7 +7,7 @@ interface FlagGroup {
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
-import { AliasMapSet, DispatchPlan, EmitterConfig, GroupedRule } from './types.js';
+import { AliasMapSet, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
 
 export class Emitter {
   private analyzer: Analyzer;
@@ -17,6 +17,7 @@ export class Emitter {
   private sourceTable: string[] = [];
   private sourceIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
+  private emittingHandler = false;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -53,6 +54,7 @@ export class Emitter {
     lines.push('var checkQuantityOwned=helpers.checkQuantityOwned;');
     lines.push('var me=helpers.me;');
     lines.push('var getBaseStat=helpers.getBaseStat;');
+    lines.push('var _si=-1;');
     lines.push('');
 
     // MaxQuantity helper references
@@ -91,12 +93,41 @@ export class Emitter {
     return lines.join('\n');
   }
 
+  private get useObjectLookup(): boolean {
+    return this.config.dispatchStrategy === DispatchStrategy.ObjectLookup;
+  }
+
   private emitCheckItem(plan: DispatchPlan, mqSources: string[]): string {
     const lines: string[] = [];
+
+    if (this.useObjectLookup) {
+      // Emit handler functions and lookup tables before checkItem
+      this.emitLookupTables(lines, plan, mqSources);
+    }
+
     lines.push('function checkItem(item,verbose){');
     lines.push('var identified=item.getFlag(16);');
-    lines.push('var result=0,_si=-1;');
+    lines.push('var result=0;_si=-1;');
 
+    if (this.useObjectLookup) {
+      this.emitLookupDispatch(lines, plan);
+    } else {
+      this.emitSwitchDispatch(lines, plan, mqSources);
+    }
+
+    if (plan.catchAll.length > 0) {
+      for (const rule of plan.catchAll) {
+        this.emitCheckRule(lines, rule, mqSources, false);
+      }
+    }
+
+    lines.push('if(verbose){var _e=_si>=0?_s[_si]:null;return{result:result,file:_e?_e[0]:null,line:_e?_e[1]:0};}');
+    lines.push('return result;');
+    lines.push('}');
+    return lines.join('\n');
+  }
+
+  private emitSwitchDispatch(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
     if (plan.classidGroups.size > 0) {
       lines.push('switch(item.classid){');
       for (const [classid, qualityMap] of plan.classidGroups) {
@@ -116,17 +147,43 @@ export class Emitter {
       }
       lines.push('}');
     }
+  }
 
-    if (plan.catchAll.length > 0) {
-      for (const rule of plan.catchAll) {
-        this.emitCheckRule(lines, rule, mqSources, false);
+  private emitLookupTables(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
+    let fnIdx = 0;
+    // _si is shared via closure — handlers set it, checkItem reads it
+    const emitTable = (groups: Map<number, Map<number | null, GroupedRule[]>>, tableName: string): void => {
+      if (groups.size === 0) return;
+      lines.push(`var ${tableName}={};`);
+      for (const [key, qualityMap] of groups) {
+        const fnName = `_f${fnIdx++}`;
+        lines.push(`function ${fnName}(item,identified){`);
+        lines.push('var result=0;');
+        this.emittingHandler = true;
+        this.emitQualityDispatch(lines, qualityMap, mqSources, false);
+        this.emittingHandler = false;
+        lines.push('return result;');
+        lines.push('}');
+        lines.push(`${tableName}[${key}]=${fnName};`);
       }
-    }
+    };
 
-    lines.push('if(verbose)return{result:result,file:_si>=0?_s[_si][0]:null,line:_si>=0?_s[_si][1]:0};');
-    lines.push('return result;');
-    lines.push('}');
-    return lines.join('\n');
+    emitTable(plan.classidGroups, '_cc');
+    emitTable(plan.typeGroups, '_tt');
+  }
+
+  private emitLookupDispatch(lines: string[], plan: DispatchPlan): void {
+    const emitLookup = (tableName: string, keyExpr: string): void => {
+      lines.push(`var _fn=${tableName}[${keyExpr}];`);
+      lines.push('if(_fn){');
+      lines.push('var _r=_fn(item,identified);');
+      lines.push('if(_r===1){if(verbose){var _e=_s[_si];return{result:1,file:_e[0],line:_e[1]};}return 1;}');
+      lines.push('if(_r===-1){result=-1;}');
+      lines.push('}');
+    };
+
+    if (plan.classidGroups.size > 0) emitLookup('_cc', 'item.classid');
+    if (plan.typeGroups.size > 0) emitLookup('_tt', 'item.itemType');
   }
 
   private emitQualityDispatch(
@@ -316,7 +373,10 @@ export class Emitter {
 
   private emitMatch(source: string): string {
     const id = this.getSourceId(source);
-    return `if(verbose)return{result:1,file:_s[${id}][0],line:_s[${id}][1]};return 1;`;
+    if (this.useObjectLookup && this.emittingHandler) {
+      return `_si=${id};return 1;`;
+    }
+    return `_si=${id};if(verbose){var _r=_s[${id}];return{result:1,file:_r[0],line:_r[1]};}return 1;`;
   }
 
   private emitMaybe(source: string): string {
