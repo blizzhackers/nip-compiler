@@ -375,14 +375,20 @@ export class Emitter {
       const maybeId = this.getSourceId(firstMagicalSource);
       lines.push(`if(!_id)return ${-(maybeId + 1)};`);
 
-      // 3. Magical rules (only reached when identified)
+      // 3. Magical rules (only reached when identified — strip redundant _id checks)
       for (const group of magicalGroups) {
         if (group.flagCondition) {
           lines.push(`if(${group.flagCondition}){`);
-          for (const rule of group.rules) this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted);
+          for (const rule of group.rules) {
+            const stripped = this.stripIdentifiedCheck(rule.stripped);
+            this.emitCheckRule(lines, stripped, mqSources, true, hoisted);
+          }
           lines.push('}');
         } else {
-          for (const rule of group.rules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
+          for (const rule of group.rules) {
+            const stripped = this.stripIdentifiedCheck(rule.original);
+            this.emitCheckRule(lines, stripped, mqSources, true, hoisted);
+          }
         }
       }
     }
@@ -550,6 +556,29 @@ export class Emitter {
     } else if (expr.kind === NodeKind.UnaryExpr) {
       this.countStatFreq(expr.operand, freq);
     }
+  }
+
+  private stripIdentifiedCheck(rule: GroupedRule): GroupedRule {
+    if (!rule.residualProperty) return rule;
+    const stripped = this.removeIdentifiedExpr(rule.residualProperty);
+    return { ...rule, residualProperty: stripped };
+  }
+
+  private removeIdentifiedExpr(expr: ExprNode): ExprNode | null {
+    if (expr.kind === NodeKind.BinaryExpr) {
+      if (expr.op === '==' && expr.left.kind === NodeKind.KeywordExpr
+        && expr.left.name === 'flag' && expr.right.kind === NodeKind.Identifier
+        && expr.right.name === 'identified') return null;
+      if (expr.op === '&&') {
+        const left = this.removeIdentifiedExpr(expr.left);
+        const right = this.removeIdentifiedExpr(expr.right);
+        if (left === null && right === null) return null;
+        if (left === null) return right;
+        if (right === null) return left;
+        return { ...expr, left, right };
+      }
+    }
+    return expr;
   }
 
   private residualRequiresIdentified(expr: ExprNode | null): boolean {
