@@ -223,7 +223,7 @@ describe('Emitter', () => {
     assert.strictEqual(typeof factory, 'function');
   });
 
-  it('checkItem returns match for matching item', () => {
+  it('checkItem returns 1 (no verbose) for matching item', () => {
     const file = parser.parseFile('[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25', 'test.nip');
     binder.bindFile(file);
     const js = emitter.emit([file]);
@@ -235,16 +235,35 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85,
-      quality: 7,
-      itemType: 10,
+      classid: 85, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
       getStatEx: (id: number) => id === 9 ? 25 : 0,
     };
 
-    const result = mod.checkItem(mockItem);
+    assert.strictEqual(mod.checkItem(mockItem), 1);
+  });
+
+  it('checkItem returns {result, file, line} in verbose mode', () => {
+    const file = parser.parseFile('[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25', 'test.nip');
+    binder.bindFile(file);
+    const js = emitter.emit([file]);
+    const factory = eval(js);
+    const mod = factory({
+      checkQuantityOwned: () => 0,
+      me: { charlvl: 90, ladder: 1, playertype: 0, gametype: 1, realm: 'europe' },
+      getBaseStat: () => 0,
+    });
+
+    const mockItem = {
+      classid: 85, quality: 7, itemType: 10,
+      getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
+      getStatEx: (id: number) => id === 9 ? 25 : 0,
+    };
+
+    const result = mod.checkItem(mockItem, true);
     assert.strictEqual(result.result, 1);
-    assert.strictEqual(result.line, 'test.nip#1');
+    assert.strictEqual(result.file, 'test.nip');
+    assert.strictEqual(result.line, 1);
   });
 
   it('checkItem returns 0 for non-matching item', () => {
@@ -259,15 +278,13 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 520, // amulet, not ring
-      quality: 7,
-      itemType: 12,
-      getFlag: () => 0x10,
-      getStatEx: () => 0,
+      classid: 520, quality: 7, itemType: 12,
+      getFlag: () => 0x10, getStatEx: () => 0,
     };
 
-    const result = mod.checkItem(mockItem);
-    assert.strictEqual(result.result, 0);
+    assert.strictEqual(mod.checkItem(mockItem), 0);
+    const verbose = mod.checkItem(mockItem, true);
+    assert.strictEqual(verbose.result, 0);
   });
 
   it('checkItem returns -1 for unidentified item that matches property but fails stat', () => {
@@ -282,15 +299,15 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85,
-      quality: 7,
-      itemType: 10,
-      getFlag: () => 0, // not identified
-      getStatEx: () => 0, // stat doesn't match
+      classid: 85, quality: 7, itemType: 10,
+      getFlag: () => 0, getStatEx: () => 0,
     };
 
-    const result = mod.checkItem(mockItem);
-    assert.strictEqual(result.result, -1);
+    assert.strictEqual(mod.checkItem(mockItem), -1);
+    const verbose = mod.checkItem(mockItem, true);
+    assert.strictEqual(verbose.result, -1);
+    assert.strictEqual(verbose.file, 'test.nip');
+    assert.strictEqual(verbose.line, 1);
   });
 
   it('getTier returns highest matching tier', () => {
@@ -360,8 +377,9 @@ describe('Emitter', () => {
       getStatEx: (id: number) => id === 9 ? 25 : 0,
     };
 
-    const result = mod.checkItem(mockItem);
-    assert.strictEqual(result.line, 'kolton.nip#1');
+    const result = mod.checkItem(mockItem, true);
+    assert.strictEqual(result.file, 'kolton.nip');
+    assert.strictEqual(result.line, 1);
   });
 
   it('handles type dispatch rules', () => {
@@ -382,8 +400,7 @@ describe('Emitter', () => {
       getStatEx: (id: number) => id === 31 ? 200 : 0,
     };
 
-    const result = mod.checkItem(mockItem);
-    assert.strictEqual(result.result, 1);
+    assert.strictEqual(mod.checkItem(mockItem), 1);
   });
 
   it('handles catch-all rules (flag-only)', () => {
@@ -403,8 +420,7 @@ describe('Emitter', () => {
       getStatEx: (id: number) => id === 194 ? 4 : 0,
     };
 
-    const result = mod.checkItem(mockItem);
-    assert.strictEqual(result.result, 1);
+    assert.strictEqual(mod.checkItem(mockItem), 1);
   });
 
   it('emits multiple files into one module', () => {

@@ -65,7 +65,10 @@ function sidKey(name: string): string {
 }
 
 describe('E2E: kolton.nip with real aliases', () => {
-  let mod: { checkItem: (item: any) => { result: number; line: string | null }; getTier: (item: any) => number };
+  let mod: {
+    checkItem: (item: any, verbose?: boolean) => any;
+    getTier: (item: any) => number;
+  };
 
   before(() => {
     const content = readFileSync(join(process.cwd(), 'nip/kolton.nip'), 'utf-8');
@@ -83,9 +86,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('itemmaxmanapercent')]: 25 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#7');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 7);
     });
 
     it('picks up BK ring (maxstamina == 50, lifeleech >= 3)', () => {
@@ -93,9 +97,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('maxstamina')]: 50, [sidKey('lifeleech')]: 5 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#8');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 8);
     });
 
     it('picks up Nagel (itemmagicbonus == 30)', () => {
@@ -103,9 +108,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('itemmagicbonus')]: 30 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#9');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 9);
     });
 
     it('picks up Raven Frost (dexterity == 20, tohit == 250)', () => {
@@ -113,9 +119,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('dexterity')]: 20, [sidKey('tohit')]: 250 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#11');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 11);
     });
 
     it('picks up Dwarf Star (maxhp == 40, magicdamagereduction == 15)', () => {
@@ -123,9 +130,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('maxhp')]: 40, [sidKey('magicdamagereduction')]: 15 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#12');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 12);
     });
 
     it('rejects unique ring with no matching stats', () => {
@@ -133,7 +141,7 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: {},
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.notStrictEqual(result.result, 1);
     });
   });
@@ -149,9 +157,10 @@ describe('E2E: kolton.nip with real aliases', () => {
           [sidKey('maxmana')]: 65,
         },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#15');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 15);
     });
 
     it('picks up dual stat melee ring (tohit 100+, str+dex >= 30)', () => {
@@ -163,9 +172,10 @@ describe('E2E: kolton.nip with real aliases', () => {
           [sidKey('dexterity')]: 16,
         },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#16');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 16);
     });
 
     it('rejects rare ring with insufficient stats', () => {
@@ -173,7 +183,7 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'),
         stats: { [sidKey('fcr')]: 10 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.notStrictEqual(result.result, 1);
     });
   });
@@ -184,9 +194,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'),
         stats: { [sidKey('strength')]: 5, [sidKey('fireresist')]: 30 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#28');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 28);
     });
 
     it('picks up Highlord (lightresist == 35)', () => {
@@ -194,9 +205,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'),
         stats: { [sidKey('lightresist')]: 35 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#29');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 29);
     });
 
     it("picks up Cat's Eye (dexterity == 25)", () => {
@@ -204,9 +216,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'),
         stats: { [sidKey('dexterity')]: 25 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#30');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 30);
     });
   });
 
@@ -216,9 +229,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('serpentskinarmor'), quality: qid('unique'), itemType: tid('armor'),
         stats: { [sidKey('fireresist')]: 35, [sidKey('magicdamagereduction')]: 13 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#71');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 71);
     });
 
     it("picks up eth Gladiator's Bane (ethereal, enhanceddefense >= 200)", () => {
@@ -227,9 +241,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         flags: 0x10 | 0x400000, // identified + ethereal
         stats: { [sidKey('enhanceddefense')]: 200 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#65');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 65);
     });
 
     it("rejects non-eth Gladiator's Bane", () => {
@@ -238,9 +253,9 @@ describe('E2E: kolton.nip with real aliases', () => {
         flags: 0x10, // identified, NOT ethereal
         stats: { [sidKey('enhanceddefense')]: 200 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       // should not match line 65 which requires [flag] == ethereal
-      assert.notStrictEqual(result.line, 'kolton.nip#65');
+      assert.ok(result.line !== 65 || result.file !== 'kolton.nip');
     });
 
     it("picks up Tyrael's Might (sacredarmor, strength >= 20)", () => {
@@ -248,9 +263,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'),
         stats: { [sidKey('strength')]: 20 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#70');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 70);
     });
 
     it("picks up eth Templar's Might (sacredarmor, eth, enhanceddefense >= 220)", () => {
@@ -259,9 +275,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         flags: 0x10 | 0x400000,
         stats: { [sidKey('enhanceddefense')]: 220 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.line, 'kolton.nip#69');
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 69);
     });
   });
 
@@ -272,7 +289,7 @@ describe('E2E: kolton.nip with real aliases', () => {
         flags: 0, // not identified
         stats: {},
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, -1);
     });
 
@@ -282,7 +299,7 @@ describe('E2E: kolton.nip with real aliases', () => {
         flags: 0, // not identified, but stats still match (in theory)
         stats: { [sidKey('itemmaxmanapercent')]: 25 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
     });
   });
@@ -292,7 +309,7 @@ describe('E2E: kolton.nip with real aliases', () => {
       const item = makeItem({
         classid: cid('ring'), quality: qid('normal'), itemType: tid('ring'),
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 0);
     });
 
@@ -301,7 +318,7 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('amulet'), quality: qid('magic'), itemType: tid('amulet'),
         stats: { [sidKey('strength')]: 1 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       // There are magic amulet rules, but they need specific stats
       // with str=1 this shouldn't match any
       if (result.result === 1) {
@@ -314,7 +331,7 @@ describe('E2E: kolton.nip with real aliases', () => {
       const item = makeItem({
         classid: 999, quality: qid('unique'), itemType: 99,
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 0);
     });
   });
@@ -328,7 +345,7 @@ describe('E2E: kolton.nip with real aliases', () => {
         flags: 0x10 | 0x400000, // identified + ethereal
         stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 1200 },
       });
-      const result = mod.checkItem(item);
+      const result = mod.checkItem(item, true);
       assert.strictEqual(result.result, 1);
     });
   });
@@ -339,11 +356,10 @@ describe('E2E: kolton.nip with real aliases', () => {
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('itemmaxmanapercent')]: 25 },
       });
-      const result = mod.checkItem(item);
-      assert.ok(result.line);
-      assert.ok(result.line!.startsWith('kolton.nip#'));
-      const lineNum = parseInt(result.line!.split('#')[1]);
-      assert.ok(lineNum > 0);
+      const result = mod.checkItem(item, true);
+      assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(typeof result.line, 'number');
+      assert.ok(result.line > 0);
     });
   });
 });
@@ -436,9 +452,10 @@ describe('E2E: multi-file emission', () => {
       classid: cid('gold'), quality: qid('normal'), itemType: tid('gold'),
       stats: { [sidKey('gold')]: 600 },
     });
-    const result = mod.checkItem(item);
+    const result = mod.checkItem(item, true);
     assert.strictEqual(result.result, 1);
-    assert.strictEqual(result.line, 'gold.nip#1');
+    assert.strictEqual(result.file, 'gold.nip');
+      assert.strictEqual(result.line, 1);
   });
 
   it('still matches SoJ from kolton.nip', () => {
@@ -446,8 +463,9 @@ describe('E2E: multi-file emission', () => {
       classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
       stats: { [sidKey('itemmaxmanapercent')]: 25 },
     });
-    const result = mod.checkItem(item);
+    const result = mod.checkItem(item, true);
     assert.strictEqual(result.result, 1);
-    assert.strictEqual(result.line, 'kolton.nip#7');
+    assert.strictEqual(result.file, 'kolton.nip');
+      assert.strictEqual(result.line, 7);
   });
 });

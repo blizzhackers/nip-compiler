@@ -64,9 +64,9 @@ export class Emitter {
 
   private emitCheckItem(plan: DispatchPlan, mqSources: string[]): string {
     const lines: string[] = [];
-    lines.push('function checkItem(item){');
+    lines.push('function checkItem(item,verbose){');
     lines.push('var identified=item.getFlag(16);');
-    lines.push('var result=0,line=null;');
+    lines.push('var result=0,file=null,line=0;');
 
     if (plan.classidGroups.size > 0) {
       lines.push('switch(item.classid){');
@@ -94,7 +94,8 @@ export class Emitter {
       }
     }
 
-    lines.push('return{result:result,line:line};');
+    lines.push('if(verbose){return{result:result,file:file,line:line};}');
+    lines.push('return result;');
     lines.push('}');
     return lines.join('\n');
   }
@@ -168,6 +169,16 @@ export class Emitter {
     }
   }
 
+  private emitMatch(source: string): string {
+    const [file, lineNum] = source.split('#');
+    return `if(verbose){return{result:1,file:"${file}",line:${lineNum}};}return 1;`;
+  }
+
+  private emitMaybe(source: string): string {
+    const [file, lineNum] = source.split('#');
+    return `result=-1;file="${file}";line=${lineNum};`;
+  }
+
   private emitCheckRule(
     lines: string[],
     rule: GroupedRule,
@@ -192,39 +203,42 @@ export class Emitter {
     const mqIdx = mqSources.indexOf(rule.source);
     const hasMq = mqIdx !== -1;
 
+    const matchJs = this.emitMatch(rule.source);
+    const maybeJs = `else if(!identified&&result===0){${this.emitMaybe(rule.source)}}`;
+
     if (conditions.length > 0 && hasStats) {
       lines.push(`if(${conditions.join('&&')}){`);
       if (hasMq) {
         lines.push(`if(${statJs}){`);
         lines.push(`if(checkQuantityOwned(_mq[${mqIdx}].prop,_mq[${mqIdx}].stat)<${rule.maxQuantity}){`);
-        lines.push(`return{result:1,line:"${rule.source}"};`);
+        lines.push(matchJs);
         lines.push('}}');
       } else {
-        lines.push(`if(${statJs}){return{result:1,line:"${rule.source}"};}`);
-        lines.push(`else if(!identified&&result===0){result=-1;line="${rule.source}";}`);
+        lines.push(`if(${statJs}){${matchJs}}`);
+        lines.push(maybeJs);
       }
       lines.push('}');
     } else if (conditions.length > 0) {
       if (hasMq) {
         lines.push(`if(${conditions.join('&&')}){`);
         lines.push(`if(checkQuantityOwned(_mq[${mqIdx}].prop,null)<${rule.maxQuantity}){`);
-        lines.push(`return{result:1,line:"${rule.source}"};`);
+        lines.push(matchJs);
         lines.push('}}');
       } else {
-        lines.push(`if(${conditions.join('&&')}){return{result:1,line:"${rule.source}"};}`);
+        lines.push(`if(${conditions.join('&&')}){${matchJs}}`);
       }
     } else if (hasStats) {
       if (hasMq) {
         lines.push(`if(${statJs}){`);
         lines.push(`if(checkQuantityOwned(null,_mq[${mqIdx}].stat)<${rule.maxQuantity}){`);
-        lines.push(`return{result:1,line:"${rule.source}"};`);
+        lines.push(matchJs);
         lines.push('}}');
       } else {
-        lines.push(`if(${statJs}){return{result:1,line:"${rule.source}"};}`);
-        lines.push(`else if(!identified&&result===0){result=-1;line="${rule.source}";}`);
+        lines.push(`if(${statJs}){${matchJs}}`);
+        lines.push(maybeJs);
       }
     } else {
-      lines.push(`return{result:1,line:"${rule.source}"};`);
+      lines.push(matchJs);
     }
   }
 
