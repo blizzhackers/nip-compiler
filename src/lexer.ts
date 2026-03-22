@@ -167,6 +167,17 @@ export class Lexer {
         this.advance();
       }
     }
+    // scientific notation (e.g. 10e10, 1.5e3)
+    if (this.pos < this.input.length && (this.input[this.pos] === 'e' || this.input[this.pos] === 'E')) {
+      const next = this.peek(1);
+      if (next && (this.isDigit(next) || next === '+' || next === '-')) {
+        this.advance(); // skip e/E
+        if (this.input[this.pos] === '+' || this.input[this.pos] === '-') this.advance();
+        while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
+          this.advance();
+        }
+      }
+    }
     this.tokens.push({
       type: TokenType.Number,
       value: this.input.slice(start, this.pos),

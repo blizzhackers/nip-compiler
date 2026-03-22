@@ -12,11 +12,19 @@ export class Parser {
   private current = 0;
 
   parseLine(input: string, lineNumber = 1): NipLineNode {
-    const lexer = new Lexer(input);
+    const preprocessed = Parser.preprocess(input);
+    const lexer = new Lexer(preprocessed);
     this.tokens = lexer.tokenize();
     this.current = 0;
 
     return this.parseNipLine(lineNumber);
+  }
+
+  static preprocess(input: string): string {
+    // Convert item.getStatEx(N) → [N] and item.getStatEx(N,M) → [N,M]
+    return input.replace(/item\.getStatEx\((\d+)(?:,\s*(\d+))?\)/g, (_match, id, param) => {
+      return param ? `[${id},${param}]` : `[${id}]`;
+    });
   }
 
   parseFile(input: string, filename = 'unknown.nip'): NipFileNode {
@@ -320,12 +328,18 @@ export class Parser {
 
   private parseKeyword(): KeywordExprNode {
     const open = this.expect(TokenType.LeftBracket);
-    // Allow both [identifier] and [number] (numeric stat IDs)
+    // Allow [identifier], [number], and [number,number] (stat ID with param)
     let name: string;
     if (this.check(TokenType.Identifier)) {
       name = this.advance().value.toLowerCase();
     } else if (this.check(TokenType.Number)) {
       name = this.advance().value;
+      // Handle [N,M] for getStatEx(N,M)
+      if (this.check(TokenType.Comma)) {
+        this.advance();
+        const param = this.expect(TokenType.Number);
+        name = `${name},${param.value}`;
+      }
     } else {
       const tok = this.peek();
       throw new ParseError(`Expected keyword or stat ID but got '${tok.value || tok.type}'`, tok.line, tok.col, tok.pos);

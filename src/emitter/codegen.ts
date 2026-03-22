@@ -127,8 +127,12 @@ export class CodeGen {
   private emitStatKeyword(name: string, hoisted: Map<number | string, string> | null): string {
     const stat = this.aliases.stat[name];
 
-    // Numeric stat ID used directly: [218] → item.getStatEx(218)
+    // Numeric stat ID: [218] → getStatEx(218), [83,1] → getStatEx(83,1)
     if (stat === undefined) {
+      if (name.includes(',')) {
+        const [id, param] = name.split(',');
+        return `(item.getStatEx(${id},${param})|0)`;
+      }
       const num = Number(name);
       if (!isNaN(num)) return `(item.getStatEx(${num})|0)`;
       throw new Error(`Unknown stat: ${name}`);
