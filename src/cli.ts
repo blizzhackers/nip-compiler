@@ -20,6 +20,7 @@ Options:
   --pretty                 Pretty-print output
   --no-comments            Omit source comments
   --format <type>          Output format: iife (default), esm, cjs
+  --sourcemap              Generate .map source map file
   -h, --help               Show this help`);
   process.exit(0);
 }
@@ -29,6 +30,7 @@ let strategy: DispatchStrategy = DispatchStrategy.Switch;
 let pretty = false;
 let comments = true;
 let format = 'iife' as string;
+let sourcemap = false;
 const files: string[] = [];
 
 for (let i = 0; i < args.length; i++) {
@@ -42,6 +44,7 @@ for (let i = 0; i < args.length; i++) {
   if (arg === '--pretty') { pretty = true; continue; }
   if (arg === '--no-comments') { comments = false; continue; }
   if (arg === '--format') { format = args[++i] as typeof format; continue; }
+  if (arg === '--sourcemap') { sourcemap = true; continue; }
   files.push(arg);
 }
 
@@ -81,20 +84,41 @@ const emitter = new Emitter({
   prettyPrint: pretty,
 });
 
-let js = emitter.emit(parsed);
+const outputName = output ? basename(output) : 'checkItem.js';
 
-if (format === 'esm') {
-  js = js.replace(/^\(function\(helpers\)\{/, 'export default function(helpers){');
-  js = js.replace(/\}\)$/, '}');
-} else if (format === 'cjs') {
-  js = js.replace(/^\(function\(helpers\)\{/, 'module.exports=function(helpers){');
-  js = js.replace(/\}\)$/, '}');
-}
+if (sourcemap && output) {
+  const result = emitter.emitWithSourceMap(parsed, outputName);
+  let js = result.code;
 
-if (output) {
+  if (format === 'esm') {
+    js = js.replace(/^\(function\(helpers\)\{/, 'export default function(helpers){');
+    js = js.replace(/\}\)$/, '}');
+  } else if (format === 'cjs') {
+    js = js.replace(/^\(function\(helpers\)\{/, 'module.exports=function(helpers){');
+    js = js.replace(/\}\)$/, '}');
+  }
+
   mkdirSync(dirname(resolve(output)), { recursive: true });
   writeFileSync(resolve(output), js);
+  writeFileSync(resolve(output + '.map'), result.map);
   console.error(`\nWritten ${output} (${(js.length / 1024).toFixed(1)}kb)`);
+  console.error(`Written ${output}.map (${(result.map.length / 1024).toFixed(1)}kb)`);
 } else {
-  process.stdout.write(js);
+  let js = emitter.emit(parsed);
+
+  if (format === 'esm') {
+    js = js.replace(/^\(function\(helpers\)\{/, 'export default function(helpers){');
+    js = js.replace(/\}\)$/, '}');
+  } else if (format === 'cjs') {
+    js = js.replace(/^\(function\(helpers\)\{/, 'module.exports=function(helpers){');
+    js = js.replace(/\}\)$/, '}');
+  }
+
+  if (output) {
+    mkdirSync(dirname(resolve(output)), { recursive: true });
+    writeFileSync(resolve(output), js);
+    console.error(`\nWritten ${output} (${(js.length / 1024).toFixed(1)}kb)`);
+  } else {
+    process.stdout.write(js);
+  }
 }

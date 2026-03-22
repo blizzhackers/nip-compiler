@@ -9,6 +9,7 @@ import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
 import { AliasMapSet, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
 import { formatJs } from './formatter.js';
+import { SourceMapBuilder } from './sourcemap.js';
 
 export class Emitter {
   private analyzer: Analyzer;
@@ -93,6 +94,35 @@ export class Emitter {
 
     const raw = lines.join('\n');
     return this.config.prettyPrint ? formatJs(raw) : raw;
+  }
+
+  emitWithSourceMap(files: NipFileNode[], outputFilename = 'checkItem.js'): { code: string; map: string } {
+    const code = this.emit(files);
+    const smb = new SourceMapBuilder();
+
+    // Register all source files and their content
+    const sourceContents = new Map<string, string>();
+    for (const file of files) {
+      // Reconstruct content from lines (we don't store raw source, but line numbers are enough)
+      sourceContents.set(file.filename, '');
+    }
+
+    // Scan emitted code for source comments: // filename#line
+    const codeLines = code.split('\n');
+    const commentPattern = /\/\/\s*(\S+?)#(\d+)/;
+    for (let i = 0; i < codeLines.length; i++) {
+      const match = commentPattern.exec(codeLines[i]);
+      if (match) {
+        const [, sourceFile, sourceLine] = match;
+        // Map this generated line (1-based) to the source file and line
+        smb.addMapping(i + 1, 0, sourceFile, parseInt(sourceLine) - 1);
+      }
+    }
+
+    const map = smb.toString(outputFilename);
+    const codeWithRef = code + `\n//# sourceMappingURL=${outputFilename}.map\n`;
+
+    return { code: codeWithRef, map };
   }
 
   private get useObjectLookup(): boolean {
