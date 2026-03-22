@@ -333,8 +333,9 @@ export class Emitter {
       return;
     }
 
-    // checkItem: split rules by base-stat vs magical-only for unid optimization
-    let hasMagicalRules = false;
+    // Split all rules across all groups into base-stat vs magical-only
+    const baseGroups: FlagGroup[] = [];
+    const magicalGroups: FlagGroup[] = [];
     let firstMagicalSource: string | null = null;
 
     for (const group of groups) {
@@ -346,40 +347,42 @@ export class Emitter {
         if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
           magicalRules.push(rule);
           if (!firstMagicalSource) firstMagicalSource = effective.source;
-          hasMagicalRules = true;
         } else {
           baseRules.push(rule);
         }
       }
 
-      // Base-stat rules always run (defense, damage, etc. visible on unid)
-      if (baseRules.length > 0) {
-        if (group.flagCondition) {
-          lines.push(`if(${group.flagCondition}){`);
-          for (const rule of baseRules) this.emitCheckRule(lines, group.flagCondition ? rule.stripped : rule.original, mqSources, true, hoisted);
-          lines.push('}');
-        } else {
-          for (const rule of baseRules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
-        }
-      }
+      if (baseRules.length > 0) baseGroups.push({ ...group, rules: baseRules });
+      if (magicalRules.length > 0) magicalGroups.push({ ...group, rules: magicalRules });
+    }
 
-      // Magical-only rules wrapped in if(_id) — skip getStatEx calls on unid
-      if (magicalRules.length > 0) {
-        if (group.flagCondition) {
-          lines.push(`if(${group.flagCondition}&&_id){`);
-          for (const rule of magicalRules) this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted);
-          lines.push('}');
-        } else {
-          lines.push('if(_id){');
-          for (const rule of magicalRules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
-          lines.push('}');
-        }
+    // 1. Base-stat rules (always run — defense, damage visible on unid)
+    for (const group of baseGroups) {
+      if (group.flagCondition) {
+        lines.push(`if(${group.flagCondition}){`);
+        for (const rule of group.rules) this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted);
+        lines.push('}');
+      } else {
+        for (const rule of group.rules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
       }
     }
 
-    // Maybe: if unid and had magical rules, mark as "needs identification"
-    if (hasMagicalRules && firstMagicalSource) {
-      lines.push(`if(!_id)${this.emitMaybe(firstMagicalSource)}`);
+    // 2. If unid → maybe. If identified → check magical stats.
+    if (magicalGroups.length > 0 && firstMagicalSource) {
+      lines.push('if(!_id)_r=-1;');
+      lines.push('else{');
+
+      // 3. Magical rules (only reached when identified)
+      for (const group of magicalGroups) {
+        if (group.flagCondition) {
+          lines.push(`if(${group.flagCondition}){`);
+          for (const rule of group.rules) this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted);
+          lines.push('}');
+        } else {
+          for (const rule of group.rules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
+        }
+      }
+      lines.push('}');
     }
   }
 
