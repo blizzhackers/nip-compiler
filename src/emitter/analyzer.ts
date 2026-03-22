@@ -21,23 +21,23 @@ export class Analyzer {
       dispatch = this.extractDispatchKey(line.property.expr);
     }
 
-    let tier: number | null = null;
-    let mercTier: number | null = null;
+    let tierExpr: ExprNode | null = null;
+    let mercTierExpr: ExprNode | null = null;
     let maxQuantity: number | null = null;
 
     if (line.meta) {
       for (const entry of line.meta.entries) {
-        if (entry.key === 'tier' && entry.expr.kind === NodeKind.NumberLiteral) {
-          tier = entry.expr.value;
-        } else if (entry.key === 'merctier' && entry.expr.kind === NodeKind.NumberLiteral) {
-          mercTier = entry.expr.value;
+        if (entry.key === 'tier') {
+          tierExpr = entry.expr;
+        } else if (entry.key === 'merctier') {
+          mercTierExpr = entry.expr;
         } else if (entry.key === 'maxquantity' && entry.expr.kind === NodeKind.NumberLiteral) {
           maxQuantity = entry.expr.value;
         }
       }
     }
 
-    return { line, lineIndex, source, dispatch, tier, mercTier, maxQuantity };
+    return { line, lineIndex, source, dispatch, tierExpr, mercTierExpr, maxQuantity };
   }
 
   private extractDispatchKey(expr: ExprNode): DispatchKey | null {

@@ -75,7 +75,11 @@ describe('Analyzer', () => {
     const line = parser.parseLine('[name] == ring # # [tier] == 5');
     binder.bindLine(line);
     const result = analyzer.analyze(line, 0, 'test.nip');
-    assert.strictEqual(result.tier, 5);
+    assert.ok(result.tierExpr);
+    assert.strictEqual(result.tierExpr!.kind, NodeKind.NumberLiteral);
+    if (result.tierExpr!.kind === NodeKind.NumberLiteral) {
+      assert.strictEqual(result.tierExpr!.value, 5);
+    }
   });
 
   it('extracts maxquantity meta', () => {

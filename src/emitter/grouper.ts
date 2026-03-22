@@ -47,8 +47,8 @@ export class Grouper {
       source: analyzed.source,
       residualProperty,
       statExpr,
-      tier: analyzed.tier,
-      mercTier: analyzed.mercTier,
+      tierExpr: analyzed.tierExpr,
+      mercTierExpr: analyzed.mercTierExpr,
       maxQuantity: analyzed.maxQuantity,
     };
   }

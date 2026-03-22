@@ -159,6 +159,13 @@ export class Lexer {
     while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
       this.advance();
     }
+    // decimal part
+    if (this.pos < this.input.length && this.input[this.pos] === '.' && this.isDigit(this.peek(1))) {
+      this.advance(); // skip .
+      while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
+        this.advance();
+      }
+    }
     this.tokens.push({
       type: TokenType.Number,
       value: this.input.slice(start, this.pos),

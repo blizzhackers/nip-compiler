@@ -26,8 +26,8 @@ export interface AnalyzedLine {
   lineIndex: number;
   source: string;
   dispatch: DispatchKey | null;
-  tier: number | null;
-  mercTier: number | null;
+  tierExpr: ExprNode | null;
+  mercTierExpr: ExprNode | null;
   maxQuantity: number | null;
 }
 
@@ -37,8 +37,8 @@ export interface GroupedRule {
   source: string;
   residualProperty: ExprNode | null;
   statExpr: ExprNode | null;
-  tier: number | null;
-  mercTier: number | null;
+  tierExpr: ExprNode | null;
+  mercTierExpr: ExprNode | null;
   maxQuantity: number | null;
 }
 

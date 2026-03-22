@@ -16,6 +16,7 @@ export class Emitter {
   private comments: boolean;
   private sourceTable: string[] = [];
   private sourceIdMap = new Map<string, number>();
+  private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -73,9 +74,9 @@ export class Emitter {
 
     lines.push(this.emitCheckItem(plan, mqRules.map(m => m.source)));
     lines.push('');
-    lines.push(this.emitTierFunction('getTier', 'tier', plan));
+    lines.push(this.emitTierFunction('getTier', 'tierExpr', plan));
     lines.push('');
-    lines.push(this.emitTierFunction('getMercTier', 'mercTier', plan));
+    lines.push(this.emitTierFunction('getMercTier', 'mercTierExpr', plan));
     lines.push('');
     // Source table — emitted after all rules so all IDs are collected
     // _s[id] = [file, line]
@@ -210,13 +211,13 @@ export class Emitter {
       if (group.flagCondition) {
         lines.push(`if(${group.flagCondition}){`);
         for (const rule of group.rules) {
-          if (isTier) this.emitTierRule(lines, rule.stripped, hoisted);
+          if (isTier) this.emitTierRule(lines, rule.stripped, this.currentTierField, hoisted);
           else this.emitCheckRule(lines, rule.stripped, mqSources, false, hoisted);
         }
         lines.push('}');
       } else {
         for (const rule of group.rules) {
-          if (isTier) this.emitTierRule(lines, rule.original, hoisted);
+          if (isTier) this.emitTierRule(lines, rule.original, this.currentTierField, hoisted);
           else this.emitCheckRule(lines, rule.original, mqSources, false, hoisted);
         }
       }
@@ -389,10 +390,11 @@ export class Emitter {
 
   private emitTierFunction(
     name: string,
-    field: 'tier' | 'mercTier',
+    field: 'tierExpr' | 'mercTierExpr',
     plan: DispatchPlan,
   ): string {
     const lines: string[] = [];
+    this.currentTierField = field;
     lines.push(`function ${name}(item){`);
     lines.push('var tier=-1,t;');
 
@@ -423,7 +425,7 @@ export class Emitter {
 
     const catchAllTier = plan.catchAll.filter(r => r[field] !== null);
     for (const rule of catchAllTier) {
-      this.emitTierRule(lines, rule);
+      this.emitTierRule(lines, rule, field);
     }
 
     lines.push('return tier;');
@@ -434,12 +436,16 @@ export class Emitter {
   private emitTierRule(
     lines: string[],
     rule: GroupedRule,
+    field: 'tierExpr' | 'mercTierExpr',
     hoisted?: Map<number | string, string>,
   ): void {
     if (this.comments) lines.push(`// ${rule.source}`);
 
-    const tierValue = rule.tier ?? rule.mercTier;
-    if (tierValue === null) return;
+    const tierExpr = rule[field];
+    if (!tierExpr) return;
+
+    // Tier expression can be a number literal or a complex stat expression
+    const tierJs = this.codegen.emitStatExpr(tierExpr);
 
     const conditions: string[] = [];
     if (rule.residualProperty) {
@@ -455,9 +461,9 @@ export class Emitter {
     }
 
     if (conditions.length > 0) {
-      lines.push(`if(${conditions.join('&&')}){t=${tierValue};if(t>tier)tier=t;}`);
+      lines.push(`if(${conditions.join('&&')}){t=${tierJs};if(t>tier)tier=t;}`);
     } else {
-      lines.push(`t=${tierValue};if(t>tier)tier=t;`);
+      lines.push(`t=${tierJs};if(t>tier)tier=t;`);
     }
   }
 }
