@@ -18,6 +18,7 @@ Options:
   -o, --output <file>      Output file (default: stdout)
   --strategy <type>        Dispatch strategy: switch (default) or lookup
   --pretty                 Pretty-print output
+  --minify                 Strip comments and whitespace for smallest output
   --no-comments            Omit source comments
   --format <type>          Output format: iife (default), esm, cjs
   --sourcemap              Generate .map source map file
@@ -28,6 +29,7 @@ Options:
 let output: string | null = null;
 let strategy: DispatchStrategy = DispatchStrategy.Switch;
 let pretty = false;
+let minify = false;
 let comments = true;
 let format = 'iife' as string;
 let sourcemap = false;
@@ -42,6 +44,7 @@ for (let i = 0; i < args.length; i++) {
     continue;
   }
   if (arg === '--pretty') { pretty = true; continue; }
+  if (arg === '--minify') { minify = true; comments = false; continue; }
   if (arg === '--no-comments') { comments = false; continue; }
   if (arg === '--format') { format = args[++i] as typeof format; continue; }
   if (arg === '--sourcemap') { sourcemap = true; continue; }
@@ -82,6 +85,7 @@ const emitter = new Emitter({
   includeSourceComments: comments,
   dispatchStrategy: strategy,
   prettyPrint: pretty,
+  minify,
 });
 
 const outputName = output ? basename(output) : 'checkItem.js';

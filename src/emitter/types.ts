@@ -84,4 +84,5 @@ export interface EmitterConfig {
   includeSourceComments?: boolean;
   dispatchStrategy?: DispatchStrategy;
   prettyPrint?: boolean;
+  minify?: boolean;
 }

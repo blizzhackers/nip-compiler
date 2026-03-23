@@ -15,7 +15,7 @@ import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
 import { AliasMapSet, BASE_STATS, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
-import { formatJs } from './formatter.js';
+import { formatJs, minifyJs } from './formatter.js';
 import { SourceMapBuilder } from './sourcemap.js';
 
 export class Emitter {
@@ -112,6 +112,7 @@ export class Emitter {
     lines.push('})');
 
     const raw = lines.join('\n');
+    if (this.config.minify) return minifyJs(raw);
     return this.config.prettyPrint ? formatJs(raw) : raw;
   }
 
