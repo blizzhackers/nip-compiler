@@ -127,15 +127,56 @@ export class Emitter {
       sourceContents.set(file.filename, '');
     }
 
-    // Scan emitted code for source comments: // filename#line
+    // Build source mappings: scan for // filename#line comments, then map
+    // surrounding code lines to the appropriate source location.
     const codeLines = code.split('\n');
     const commentPattern = /\/\/\s*(\S+?)#(\d+)/;
+
+    // First pass: find source location for each comment line
+    const lineSource: (null | { file: string; line: number })[] = new Array(codeLines.length).fill(null);
     for (let i = 0; i < codeLines.length; i++) {
-      const match = commentPattern.exec(codeLines[i]);
+      const match = commentPattern.exec(codeLines[i].trim());
       if (match) {
-        const [, sourceFile, sourceLine] = match;
-        // Map this generated line (1-based) to the source file and line
-        smb.addMapping(i + 1, 0, sourceFile, parseInt(sourceLine) - 1);
+        lineSource[i] = { file: match[1], line: parseInt(match[2]) - 1 };
+      }
+    }
+
+    // Second pass: propagate source forward from each comment, and backward
+    // to cover hoisted vars that precede the first comment in a block
+    let current: { file: string; line: number } | null = null;
+    for (let i = 0; i < codeLines.length; i++) {
+      const trimmed = codeLines[i].trim();
+
+      // Block boundaries reset to runtime (prevents fallback to last .nip mapping)
+      if (trimmed.startsWith('case ') || trimmed.startsWith('switch(') ||
+          trimmed.startsWith('function ') || trimmed.startsWith('break') ||
+          trimmed.startsWith('return') || trimmed.startsWith('let ') ||
+          trimmed === '}' || trimmed === '})' || trimmed === '') {
+        if (current !== null) {
+          current = null;
+          smb.addMapping(i + 1, 0, '<runtime>', 0);
+        }
+        continue;
+      }
+
+      if (lineSource[i]) {
+        // Found a comment — if we didn't have a current source, backfill
+        // hoisted vars above this comment (until we hit a block boundary)
+        if (current === null) {
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = codeLines[j].trim();
+            if (prev.startsWith('case ') || prev.startsWith('switch(') ||
+                prev.startsWith('function ') || prev.startsWith('break') ||
+                prev === '}' || prev === '})' || prev === '' ||
+                lineSource[j] !== null) break;
+            smb.addMapping(j + 1, 0, lineSource[i]!.file, lineSource[i]!.line);
+          }
+        }
+        current = lineSource[i];
+      }
+
+      if (current !== null) {
+        smb.addMapping(i + 1, 0, current.file, current.line);
       }
     }
 
