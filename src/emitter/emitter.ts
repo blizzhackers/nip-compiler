@@ -4,6 +4,13 @@ interface FlagGroup {
   flagCondition: string | null;
   rules: { original: GroupedRule; stripped: GroupedRule }[];
 }
+
+interface RuleBlock {
+  condition: string | null;
+  comment: string | null;
+  vars: string[];
+  body: string[];
+}
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
@@ -179,25 +186,50 @@ export class Emitter {
   }
 
   private emitSwitchDispatch(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
-    if (plan.classidGroups.size > 0) {
-      lines.push('switch(_c){');
-      for (const [classid, qualityMap] of plan.classidGroups) {
-        lines.push(`case ${classid}:{`);
-        this.emitQualityDispatch(lines, qualityMap, mqSources, false);
-        this.emitCaseEnd(lines);
-      }
-      lines.push('}');
+    this.emitMergedSwitch(lines, plan.classidGroups, '_c', mqSources);
+    this.emitMergedSwitch(lines, plan.typeGroups, '_t', mqSources);
+  }
+
+  private emitMergedSwitch(
+    lines: string[],
+    groups: Map<number, Map<number | null, GroupedRule[]>>,
+    switchExpr: string,
+    mqSources: string[],
+  ): void {
+    if (groups.size === 0) return;
+
+    // Emit each case body into a temp buffer, group cases with identical bodies
+    const caseEntries: { key: number; body: string[] }[] = [];
+    for (const [key, qualityMap] of groups) {
+      const body: string[] = [];
+      this.emitQualityDispatch(body, qualityMap, mqSources, false);
+      caseEntries.push({ key, body });
     }
 
-    if (plan.typeGroups.size > 0) {
-      lines.push('switch(_t){');
-      for (const [type, qualityMap] of plan.typeGroups) {
-        lines.push(`case ${type}:{`);
-        this.emitQualityDispatch(lines, qualityMap, mqSources, false);
-        this.emitCaseEnd(lines);
+    // Group by body content (ignoring source IDs for dedup)
+    const bodyGroups: { keys: number[]; body: string[] }[] = [];
+    const bodyMap = new Map<string, number>();
+    for (const entry of caseEntries) {
+      const normalized = entry.body.join('\n').replace(/return \d+/g, 'return 0').replace(/_r=-\d+/g, '_r=0');
+      const existing = bodyMap.get(normalized);
+      if (existing !== undefined) {
+        bodyGroups[existing].keys.push(entry.key);
+      } else {
+        bodyMap.set(normalized, bodyGroups.length);
+        bodyGroups.push({ keys: [entry.key], body: entry.body });
       }
-      lines.push('}');
     }
+
+    lines.push(`switch(${switchExpr}){`);
+    for (const group of bodyGroups) {
+      for (let i = 0; i < group.keys.length - 1; i++) {
+        lines.push(`case ${group.keys[i]}:`);
+      }
+      lines.push(`case ${group.keys[group.keys.length - 1]}:{`);
+      lines.push(...group.body);
+      this.emitCaseEnd(lines);
+    }
+    lines.push('}');
   }
 
   private emitLookupTables(lines: string[], plan: DispatchPlan, mqSources: string[]): void {
@@ -321,15 +353,25 @@ export class Emitter {
     if (isTier) {
       // Tier functions: no unid optimization, emit hoisted vars + all rules
       for (const decl of hoistedDecls) lines.push(decl);
+      let pendingTierBlocks: RuleBlock[] = [];
       for (const group of groups) {
+        const blocks: RuleBlock[] = [];
+        for (const rule of group.rules) {
+          const effective = group.flagCondition ? rule.stripped : rule.original;
+          const block = this.emitTierRuleBlock(effective, this.currentTierField, hoisted);
+          if (block) blocks.push(block);
+        }
         if (group.flagCondition) {
+          lines.push(...this.chainBlocks(pendingTierBlocks));
+          pendingTierBlocks = [];
           lines.push(`if(${group.flagCondition}){`);
-          for (const rule of group.rules) this.emitTierRule(lines, rule.stripped, this.currentTierField, hoisted);
+          lines.push(...this.chainBlocks(blocks));
           lines.push('}');
         } else {
-          for (const rule of group.rules) this.emitTierRule(lines, rule.original, this.currentTierField, hoisted);
+          pendingTierBlocks.push(...blocks);
         }
       }
+      lines.push(...this.chainBlocks(pendingTierBlocks));
       return;
     }
 
@@ -360,15 +402,24 @@ export class Emitter {
     for (const decl of hoistedDecls) lines.push(decl);
 
     // 1. Base-stat rules (always run — defense, damage visible on unid)
+    let pendingBaseBlocks: RuleBlock[] = [];
     for (const group of baseGroups) {
+      const blocks: RuleBlock[] = [];
+      for (const rule of group.rules) {
+        const effective = group.flagCondition ? rule.stripped : rule.original;
+        blocks.push(this.emitCheckRuleBlock(effective, mqSources, hoisted));
+      }
       if (group.flagCondition) {
+        lines.push(...this.chainBlocks(pendingBaseBlocks));
+        pendingBaseBlocks = [];
         lines.push(`if(${group.flagCondition}){`);
-        for (const rule of group.rules) this.emitCheckRule(lines, rule.stripped, mqSources, true, hoisted);
+        lines.push(...this.chainBlocks(blocks));
         lines.push('}');
       } else {
-        for (const rule of group.rules) this.emitCheckRule(lines, rule.original, mqSources, true, hoisted);
+        pendingBaseBlocks.push(...blocks);
       }
     }
+    lines.push(...this.chainBlocks(pendingBaseBlocks));
 
     if (magicalGroups.length > 0 && firstMagicalSource) {
       // 2. Unid → return maybe immediately, skip all magical comparisons
@@ -376,21 +427,25 @@ export class Emitter {
       lines.push(`if(!_id)return ${-(maybeId + 1)};`);
 
       // 3. Magical rules (only reached when identified — strip redundant _id checks)
+      let pendingMagicalBlocks: RuleBlock[] = [];
       for (const group of magicalGroups) {
+        const blocks: RuleBlock[] = [];
+        for (const rule of group.rules) {
+          const effective = group.flagCondition ? rule.stripped : rule.original;
+          const stripped = this.stripIdentifiedCheck(effective);
+          blocks.push(this.emitCheckRuleBlock(stripped, mqSources, hoisted));
+        }
         if (group.flagCondition) {
+          lines.push(...this.chainBlocks(pendingMagicalBlocks));
+          pendingMagicalBlocks = [];
           lines.push(`if(${group.flagCondition}){`);
-          for (const rule of group.rules) {
-            const stripped = this.stripIdentifiedCheck(rule.stripped);
-            this.emitCheckRule(lines, stripped, mqSources, true, hoisted);
-          }
+          lines.push(...this.chainBlocks(blocks));
           lines.push('}');
         } else {
-          for (const rule of group.rules) {
-            const stripped = this.stripIdentifiedCheck(rule.original);
-            this.emitCheckRule(lines, stripped, mqSources, true, hoisted);
-          }
+          pendingMagicalBlocks.push(...blocks);
         }
       }
+      lines.push(...this.chainBlocks(pendingMagicalBlocks));
     }
   }
 
@@ -758,10 +813,33 @@ export class Emitter {
 
       if (filtered.size === 0) return;
 
-      lines.push(`switch(${switchExpr}){`);
+      const caseEntries: { key: number; body: string[] }[] = [];
       for (const [key, qualityMap] of filtered) {
-        lines.push(`case ${key}:{`);
-        this.emitQualityDispatch(lines, qualityMap, [], true);
+        const body: string[] = [];
+        this.emitQualityDispatch(body, qualityMap, [], true);
+        caseEntries.push({ key, body });
+      }
+
+      const bodyGroups: { keys: number[]; body: string[] }[] = [];
+      const bodyMap = new Map<string, number>();
+      for (const entry of caseEntries) {
+        const normalized = entry.body.join('\n').replace(/t=\d+/g, 't=0');
+        const existing = bodyMap.get(normalized);
+        if (existing !== undefined) {
+          bodyGroups[existing].keys.push(entry.key);
+        } else {
+          bodyMap.set(normalized, bodyGroups.length);
+          bodyGroups.push({ keys: [entry.key], body: entry.body });
+        }
+      }
+
+      lines.push(`switch(${switchExpr}){`);
+      for (const group of bodyGroups) {
+        for (let i = 0; i < group.keys.length - 1; i++) {
+          lines.push(`case ${group.keys[i]}:`);
+        }
+        lines.push(`case ${group.keys[group.keys.length - 1]}:{`);
+        lines.push(...group.body);
         this.emitCaseEnd(lines);
       }
       lines.push('}');
@@ -786,15 +864,27 @@ export class Emitter {
     field: 'tierExpr' | 'mercTierExpr',
     hoisted?: Map<number | string, string>,
   ): void {
-    if (this.comments) lines.push(`// ${rule.source}${rule.line.comment ? ' — ' + rule.line.comment : ''}`);
+    const block = this.emitTierRuleBlock(rule, field, hoisted);
+    if (!block) return;
+    lines.push(...this.chainBlocks([block]));
+  }
 
+  private emitTierRuleBlock(
+    rule: GroupedRule,
+    field: 'tierExpr' | 'mercTierExpr',
+    hoisted?: Map<number | string, string>,
+  ): RuleBlock | null {
     const tierExpr = rule[field];
-    if (!tierExpr) return;
+    if (!tierExpr) return null;
 
-    // Tier expression can be a number literal or a complex stat expression
+    const comment = this.comments
+      ? `// ${rule.source}${rule.line.comment ? ' — ' + rule.line.comment : ''}`
+      : null;
+
     const tierJs = this.codegen.emitStatExpr(tierExpr);
-
+    const vars: string[] = [];
     const conditions: string[] = [];
+
     if (rule.residualProperty) {
       conditions.push(this.codegen.emitPropertyExpr(rule.residualProperty));
     }
@@ -812,17 +902,171 @@ export class Emitter {
         if (exprHoisted.has(key)) continue;
         const varName = `_l${exprHoisted.size}`;
         exprHoisted.set(key, varName);
-        lines.push(Array.isArray(numStat)
+        vars.push(Array.isArray(numStat)
           ? `var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
           : `var ${varName}=i.getStatEx(${numStat})|0;`);
       }
       conditions.push(this.codegen.emitStatExprWithHoisted(reordered, exprHoisted));
     }
 
-    if (conditions.length > 0) {
-      lines.push(`if(${conditions.join('&&')}){t=${tierJs};if(t>tier)tier=t;}`);
-    } else {
-      lines.push(`t=${tierJs};if(t>tier)tier=t;`);
+    const body = [`t=${tierJs};if(t>tier)tier=t;`];
+    const condition = conditions.length > 0 ? conditions.join('&&') : null;
+    return { condition, comment, vars, body };
+  }
+
+  private emitCheckRuleBlock(
+    rule: GroupedRule,
+    mqSources: string[],
+    hoisted?: Map<number | string, string>,
+  ): RuleBlock {
+    const comment = this.comments
+      ? `// ${rule.source}${rule.line.comment ? ' — ' + rule.line.comment : ''}`
+      : null;
+
+    const conditions: string[] = [];
+    if (rule.residualProperty) {
+      conditions.push(this.codegen.emitPropertyExpr(rule.residualProperty));
     }
+
+    const hasStats = rule.statExpr !== null;
+    const reorderedStat = hasStats ? this.reorderBySelectivity(rule.statExpr!) : null;
+
+    const vars: string[] = [];
+    const exprHoisted = new Map<number | string, string>(hoisted ?? []);
+    if (reorderedStat) {
+      const freq = new Map<string, number>();
+      this.countStatFreq(reorderedStat, freq);
+      for (const [name, count] of freq) {
+        if (count < 2) continue;
+        const stat = this.config.aliases.stat[name];
+        const numStat = stat === undefined ? (name.includes(',') ? name.split(',').map(Number) as [number, number] : Number(name)) : stat;
+        if (typeof numStat === 'number' && isNaN(numStat)) continue;
+        const key = Array.isArray(numStat) ? `${numStat[0]}_${numStat[1]}` : typeof numStat === 'number' ? numStat : numStat;
+        if (exprHoisted.has(key)) continue;
+        const varName = `_l${exprHoisted.size}`;
+        exprHoisted.set(key, varName);
+        vars.push(Array.isArray(numStat)
+          ? `var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
+          : `var ${varName}=i.getStatEx(${numStat})|0;`);
+      }
+    }
+
+    const statJs = reorderedStat
+      ? this.codegen.emitStatExprWithHoisted(reorderedStat, exprHoisted)
+      : null;
+
+    const mqIdx = mqSources.indexOf(rule.source);
+    const hasMq = mqIdx !== -1;
+    const matchJs = this.emitMatch(rule.source);
+
+    let condition: string | null = null;
+    const body: string[] = [];
+
+    if (conditions.length > 0 && hasStats) {
+      condition = conditions.join('&&');
+      if (hasMq) {
+        body.push(`if(${statJs}){`);
+        body.push(`if(checkQuantityOwned(_mq[${mqIdx}].prop,_mq[${mqIdx}].stat)<${rule.maxQuantity}){`);
+        body.push(matchJs);
+        body.push('}}');
+      } else {
+        body.push(`if(${statJs}){${matchJs}}`);
+      }
+    } else if (conditions.length > 0) {
+      condition = conditions.join('&&');
+      if (hasMq) {
+        body.push(`if(checkQuantityOwned(_mq[${mqIdx}].prop,null)<${rule.maxQuantity}){`);
+        body.push(matchJs);
+        body.push('}');
+      } else {
+        body.push(matchJs);
+      }
+    } else if (hasStats) {
+      condition = statJs;
+      if (hasMq) {
+        body.push(`if(checkQuantityOwned(null,_mq[${mqIdx}].stat)<${rule.maxQuantity}){`);
+        body.push(matchJs);
+        body.push('}');
+      } else {
+        body.push(matchJs);
+      }
+    } else {
+      body.push(matchJs);
+    }
+
+    return { condition, comment, vars, body };
+  }
+
+  private chainBlocks(blocks: RuleBlock[]): string[] {
+    const lines: string[] = [];
+    let i = 0;
+    while (i < blocks.length) {
+      const block = blocks[i];
+      if (!block.condition) {
+        if (block.comment) lines.push(block.comment);
+        lines.push(...block.vars, ...block.body);
+        i++;
+        continue;
+      }
+
+      const allVars = [...block.vars];
+      const entries: { comment: string | null; body: string[]; isElse: boolean }[] = [
+        { comment: block.comment, body: block.body, isElse: false },
+      ];
+      const baseCond = block.condition;
+      i++;
+
+      while (i < blocks.length && blocks[i].condition) {
+        const next = blocks[i];
+        if (next.condition === baseCond) {
+          allVars.push(...next.vars);
+          entries.push({ comment: next.comment, body: next.body, isElse: false });
+          i++;
+        } else if (this.isComplement(baseCond, next.condition!)) {
+          allVars.push(...next.vars);
+          entries.push({ comment: next.comment, body: next.body, isElse: true });
+          i++;
+          break;
+        } else {
+          break;
+        }
+      }
+
+      lines.push(...allVars);
+      lines.push(`if(${baseCond}){`);
+      for (const entry of entries) {
+        if (entry.isElse) lines.push('}else{');
+        if (entry.comment) lines.push(entry.comment);
+        lines.push(...entry.body);
+      }
+      lines.push('}');
+    }
+    return lines;
+  }
+
+  private isComplement(a: string, b: string): boolean {
+    // (!X) ↔ X
+    if (a === `(!${b})`) return true;
+    if (b === `(!${a})`) return true;
+
+    // (X op1 Y) ↔ (X op2 Y) where ops are complementary
+    const parse = (s: string) => {
+      if (!s.startsWith('(') || !s.endsWith(')')) return null;
+      const inner = s.slice(1, -1);
+      for (const op of ['===', '!==', '>=', '<=', '>', '<']) {
+        const idx = inner.indexOf(op);
+        if (idx > 0) return { left: inner.slice(0, idx), op, right: inner.slice(idx + op.length) };
+      }
+      return null;
+    };
+
+    const ca = parse(a);
+    const cb = parse(b);
+    if (!ca || !cb || ca.left !== cb.left || ca.right !== cb.right) return false;
+
+    const comp: Record<string, string> = {
+      '<': '>=', '>=': '<', '<=': '>', '>': '<=', '===': '!==', '!==': '===',
+    };
+    return comp[ca.op] === cb.op;
   }
 }
