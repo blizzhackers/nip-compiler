@@ -73,15 +73,15 @@ export class Emitter {
     const lines: string[] = [];
 
     lines.push('(function(helpers){');
-    lines.push('var checkQuantityOwned=helpers.checkQuantityOwned;');
-    lines.push('var me=helpers.me;');
-    lines.push('var getBaseStat=helpers.getBaseStat;');
+    lines.push('const checkQuantityOwned=helpers.checkQuantityOwned;');
+    lines.push('const me=helpers.me;');
+    lines.push('const getBaseStat=helpers.getBaseStat;');
     lines.push('');
 
     // MaxQuantity helper references
     const mqRules = allLines.filter(a => a.maxQuantity !== null);
     if (mqRules.length > 0) {
-      lines.push('var _mq=[');
+      lines.push('const _mq=[');
       for (const mq of mqRules) {
         const propJs = mq.line.property
           ? `function(i){return ${this.codegen.emitStandalonePropertyExpr(mq.line.property.expr)};}`
@@ -103,8 +103,8 @@ export class Emitter {
     lines.push('');
     // File table + source table — emitted after all rules so all IDs are collected
     // _f=["kolton.nip","gold.nip"]; _s=[[fileIdx,line],...]
-    const fileLine = 'var _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];';
-    const srcLine = 'var _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];';
+    const fileLine = 'const _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];';
+    const srcLine = 'const _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];';
     const insertIdx = lines.indexOf('') + 1;
     lines.splice(insertIdx, 0, fileLine, srcLine);
 
@@ -159,7 +159,7 @@ export class Emitter {
 
     // Inner function: returns positive sourceId+1 for match, negative -(sourceId+1) for maybe, 0 for no match
     lines.push('function _ci(i,_id){');
-    lines.push('var _r=0,_c=i.classid|0,_q=i.quality|0,_t=i.itemType|0;');
+    lines.push('let _r=0;const _c=i.classid|0,_q=i.quality|0,_t=i.itemType|0;');
 
     if (this.useObjectLookup) {
       this.emitLookupDispatch(lines, plan);
@@ -178,9 +178,9 @@ export class Emitter {
 
     // Public wrapper: maps raw IDs to 0/1/-1 API, handles verbose
     lines.push('function checkItem(i,verbose){');
-    lines.push('var r=_ci(i,i.getFlag(16));');
+    lines.push('const r=_ci(i,i.getFlag(16));');
     lines.push('if(!verbose)return r>0?1:r<0?-1:0;');
-    lines.push('var id=(r>0?r:-r)-1;var e=id>=0?_s[id]:null;');
+    lines.push('const id=(r>0?r:-r)-1,e=id>=0?_s[id]:null;');
     lines.push('return{result:r>0?1:r<0?-1:0,file:e?_f[e[0]]:null,line:e?e[1]:0};');
     lines.push('}');
     return lines.join('\n');
@@ -238,11 +238,11 @@ export class Emitter {
     // Handlers return positive sourceId+1 for match, negative for maybe
     const emitTable = (groups: Map<number, Map<number | null, GroupedRule[]>>, tableName: string): void => {
       if (groups.size === 0) return;
-      lines.push(`var ${tableName}={};`);
+      lines.push(`const ${tableName}={};`);
       for (const [key, qualityMap] of groups) {
         const fnName = `_f${fnIdx++}`;
         lines.push(`function ${fnName}(i,_id){`);
-        lines.push('var _r=0,_q=i.quality|0;');
+        lines.push('let _r=0;const _q=i.quality|0;');
         this.emitQualityDispatch(lines, qualityMap, mqSources, false);
         lines.push('return _r;');
         lines.push('}');
@@ -256,11 +256,13 @@ export class Emitter {
 
   private emitLookupDispatch(lines: string[], plan: DispatchPlan): void {
     const emitLookup = (tableName: string, keyExpr: string): void => {
-      lines.push(`var _fn=${tableName}[${keyExpr}];`);
+      lines.push('{');
+      lines.push(`const _fn=${tableName}[${keyExpr}];`);
       lines.push('if(_fn){');
-      lines.push('var _hr=_fn(i,_id);');
+      lines.push('const _hr=_fn(i,_id);');
       lines.push('if(_hr>0)return _hr;');
       lines.push('if(_hr<0)_r=_hr;');
+      lines.push('}');
       lines.push('}');
     };
 
@@ -322,8 +324,8 @@ export class Emitter {
         const varName = `_h${varIdx++}`;
         hoisted.set(key, varName);
         hoistedDecls.push(Array.isArray(stat)
-          ? `var ${varName}=i.getStatEx(${stat[0]},${stat[1]})|0;`
-          : `var ${varName}=i.getStatEx(${stat})|0;`);
+          ? `const ${varName}=i.getStatEx(${stat[0]},${stat[1]})|0;`
+          : `const ${varName}=i.getStatEx(${stat})|0;`);
       }
     }
 
@@ -738,9 +740,9 @@ export class Emitter {
         const varName = `_l${exprHoisted.size}`;
         exprHoisted.set(key, varName);
         if (Array.isArray(numStat)) {
-          lines.push(`var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`);
+          lines.push(`const ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`);
         } else {
-          lines.push(`var ${varName}=i.getStatEx(${numStat})|0;`);
+          lines.push(`const ${varName}=i.getStatEx(${numStat})|0;`);
         }
       }
     }
@@ -799,7 +801,7 @@ export class Emitter {
     const lines: string[] = [];
     this.currentTierField = field;
     lines.push(`function ${name}(i){`);
-    lines.push('var tier=-1,t,_c=i.classid|0,_q=i.quality|0,_t=i.itemType|0;');
+    lines.push('let tier=-1,t;const _c=i.classid|0,_q=i.quality|0,_t=i.itemType|0;');
 
     const emitGroup = (groups: Map<number, Map<number | null, GroupedRule[]>>, switchExpr: string): void => {
       const filtered = new Map<number, Map<number | null, GroupedRule[]>>();
@@ -904,8 +906,8 @@ export class Emitter {
         const varName = `_l${exprHoisted.size}`;
         exprHoisted.set(key, varName);
         vars.push(Array.isArray(numStat)
-          ? `var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
-          : `var ${varName}=i.getStatEx(${numStat})|0;`);
+          ? `const ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
+          : `const ${varName}=i.getStatEx(${numStat})|0;`);
       }
       conditions.push(this.codegen.emitStatExprWithHoisted(reordered, exprHoisted));
     }
@@ -947,8 +949,8 @@ export class Emitter {
         const varName = `_l${exprHoisted.size}`;
         exprHoisted.set(key, varName);
         vars.push(Array.isArray(numStat)
-          ? `var ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
-          : `var ${varName}=i.getStatEx(${numStat})|0;`);
+          ? `const ${varName}=i.getStatEx(${numStat[0]},${numStat[1]})|0;`
+          : `const ${varName}=i.getStatEx(${numStat})|0;`);
       }
     }
 
