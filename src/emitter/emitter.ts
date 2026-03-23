@@ -426,17 +426,39 @@ export class Emitter {
 
   private extractGroupableCondition(expr: ExprNode | null): { condition: ExprNode; rest: ExprNode | null } | null {
     if (!expr) return null;
+
+    // Standalone property condition (e.g., _q<=3 as the entire residual)
+    if (this.isPropertyOnlyExpr(expr)) {
+      return { condition: expr, rest: null };
+    }
+
     if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return null;
 
-    // Check if left side is a simple property condition
-    if (this.isPropertyOnlyExpr(expr.left)) {
-      return { condition: expr.left, rest: expr.right };
+    const leftProp = this.isPropertyOnlyExpr(expr.left);
+    const rightProp = this.isPropertyOnlyExpr(expr.right);
+
+    if (leftProp && rightProp) {
+      // Both sides are property-only — prefer non-callable (quality, level)
+      // over callable (flag, prefix, suffix) for better grouping
+      const leftCallable = this.isCallablePropertyExpr(expr.left);
+      const rightCallable = this.isCallablePropertyExpr(expr.right);
+      if (!leftCallable && rightCallable) return { condition: expr.left, rest: expr.right };
+      if (leftCallable && !rightCallable) return { condition: expr.right, rest: expr.left };
     }
-    // Check right side
-    if (this.isPropertyOnlyExpr(expr.right)) {
-      return { condition: expr.right, rest: expr.left };
-    }
+
+    if (leftProp) return { condition: expr.left, rest: expr.right };
+    if (rightProp) return { condition: expr.right, rest: expr.left };
     return null;
+  }
+
+  private isCallablePropertyExpr(expr: ExprNode): boolean {
+    if (expr.kind === NodeKind.KeywordExpr)
+      return expr.name === 'flag' || expr.name === 'prefix' || expr.name === 'suffix';
+    if (expr.kind === NodeKind.BinaryExpr)
+      return this.isCallablePropertyExpr(expr.left);
+    if (expr.kind === NodeKind.UnaryExpr)
+      return this.isCallablePropertyExpr(expr.operand);
+    return false;
   }
 
   private isPropertyOnlyExpr(expr: ExprNode): boolean {
@@ -510,18 +532,24 @@ export class Emitter {
     return 1;
   }
 
-  private flattenAnd(expr: ExprNode): ExprNode[] {
+  private flattenAnd(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
-      return [...this.flattenAnd(expr.left), ...this.flattenAnd(expr.right)];
+      this.flattenAnd(expr.left, out);
+      this.flattenAnd(expr.right, out);
+    } else {
+      out.push(expr);
     }
-    return [expr];
+    return out;
   }
 
-  private flattenOr(expr: ExprNode): ExprNode[] {
+  private flattenOr(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
-      return [...this.flattenOr(expr.left), ...this.flattenOr(expr.right)];
+      this.flattenOr(expr.left, out);
+      this.flattenOr(expr.right, out);
+    } else {
+      out.push(expr);
     }
-    return [expr];
+    return out;
   }
 
   private usesMagicalStatsOnly(expr: ExprNode | null): boolean {

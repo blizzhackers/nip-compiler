@@ -2,7 +2,7 @@ import {
   ExprNode, NodeKind, BinaryExprNode,
   NipLineNode,
 } from '../types.js';
-import { AliasMapSet, AnalyzedLine, DispatchKey, DispatchKind } from './types.js';
+import { AliasMapSet, AnalyzedLine, DispatchKey, DispatchKind, getAliasMap } from './types.js';
 
 function keywordToDispatchKind(kw: string): DispatchKind | null {
   if (kw === 'name' || kw === 'classid') return DispatchKind.Classid;
@@ -140,35 +140,29 @@ export class Analyzer {
   private resolveValue(expr: ExprNode, keyword: string): number | null {
     if (expr.kind === NodeKind.NumberLiteral) return expr.value;
     if (expr.kind === NodeKind.Identifier) {
-      const map = this.getAliasMap(keyword);
+      const map = getAliasMap(this.aliases, keyword);
       if (map && expr.name in map) return map[expr.name];
     }
     return null;
   }
 
-  private getAliasMap(keyword: string): Record<string, number> | null {
-    switch (keyword) {
-      case 'name': case 'classid': return this.aliases.classId;
-      case 'type': return this.aliases.type;
-      case 'quality': return this.aliases.quality;
-      case 'flag': return this.aliases.flag;
-      case 'color': return this.aliases.color;
-      case 'class': return this.aliases.class;
-      default: return null;
-    }
-  }
-
-  private flattenAnd(expr: ExprNode): ExprNode[] {
+  private flattenAnd(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
-      return [...this.flattenAnd(expr.left), ...this.flattenAnd(expr.right)];
+      this.flattenAnd(expr.left, out);
+      this.flattenAnd(expr.right, out);
+    } else {
+      out.push(expr);
     }
-    return [expr];
+    return out;
   }
 
-  private flattenOr(expr: ExprNode): ExprNode[] {
+  private flattenOr(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
-      return [...this.flattenOr(expr.left), ...this.flattenOr(expr.right)];
+      this.flattenOr(expr.left, out);
+      this.flattenOr(expr.right, out);
+    } else {
+      out.push(expr);
     }
-    return [expr];
+    return out;
   }
 }

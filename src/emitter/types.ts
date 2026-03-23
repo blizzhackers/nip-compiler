@@ -67,6 +67,18 @@ export const BASE_STATS = new Set([
   70,  // quantity (stackable items)
 ]);
 
+export function getAliasMap(aliases: AliasMapSet, keyword: string): Record<string, number> | null {
+  switch (keyword) {
+    case 'name': case 'classid': return aliases.classId;
+    case 'type': return aliases.type;
+    case 'quality': return aliases.quality;
+    case 'flag': return aliases.flag;
+    case 'color': return aliases.color;
+    case 'class': return aliases.class;
+    default: return null;
+  }
+}
+
 export interface EmitterConfig {
   aliases: AliasMapSet;
   includeSourceComments?: boolean;

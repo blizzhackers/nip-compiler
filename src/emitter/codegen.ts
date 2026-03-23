@@ -1,5 +1,5 @@
 import { ExprNode, NodeKind, BinaryExprNode, KeywordExprNode } from '../types.js';
-import { AliasMapSet } from './types.js';
+import { AliasMapSet, getAliasMap } from './types.js';
 
 const PROPERTY_MAP: Record<string, string> = {
   classid: '_c',
@@ -175,21 +175,9 @@ export class CodeGen {
   }
 
   private resolveIdentifier(name: string, keyword: string): number | null {
-    const map = this.getAliasMap(keyword);
+    const map = getAliasMap(this.aliases, keyword);
     if (map && name in map) return map[name];
     return null;
-  }
-
-  private getAliasMap(keyword: string): Record<string, number> | null {
-    switch (keyword) {
-      case 'name': case 'classid': return this.aliases.classId;
-      case 'type': return this.aliases.type;
-      case 'quality': return this.aliases.quality;
-      case 'flag': return this.aliases.flag;
-      case 'color': return this.aliases.color;
-      case 'class': return this.aliases.class;
-      default: return null;
-    }
   }
 
   private walkStats(expr: ExprNode, stats: Map<string, number | [number, number]>): void {

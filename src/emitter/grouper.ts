@@ -1,5 +1,5 @@
 import { ExprNode, NodeKind, BinaryExprNode } from '../types.js';
-import { AliasMapSet, AnalyzedLine, DispatchKind, DispatchPlan, GroupedRule } from './types.js';
+import { AliasMapSet, AnalyzedLine, DispatchKind, DispatchPlan, getAliasMap, GroupedRule } from './types.js';
 
 export class Grouper {
   constructor(private aliases: AliasMapSet) {}
@@ -96,7 +96,7 @@ export class Grouper {
     if (expr.left.kind !== NodeKind.KeywordExpr || expr.left.name !== 'quality') return false;
     if (expr.right.kind === NodeKind.NumberLiteral) return expr.right.value === quality;
     if (expr.right.kind === NodeKind.Identifier) {
-      const map = this.getAliasMap('quality');
+      const map = getAliasMap(this.aliases, 'quality');
       if (map && expr.right.name in map) return map[expr.right.name] === quality;
     }
     return false;
@@ -112,28 +112,19 @@ export class Grouper {
   private exprMatchesValues(expr: ExprNode, values: number[], keyword: string): boolean {
     if (expr.kind === NodeKind.NumberLiteral) return values.includes(expr.value);
     if (expr.kind === NodeKind.Identifier) {
-      const map = this.getAliasMap(keyword);
+      const map = getAliasMap(this.aliases, keyword);
       if (map && expr.name in map) return values.includes(map[expr.name]);
     }
     return false;
   }
 
-  private getAliasMap(keyword: string): Record<string, number> | null {
-    switch (keyword) {
-      case 'name': case 'classid': return this.aliases.classId;
-      case 'type': return this.aliases.type;
-      case 'quality': return this.aliases.quality;
-      case 'flag': return this.aliases.flag;
-      case 'color': return this.aliases.color;
-      case 'class': return this.aliases.class;
-      default: return null;
-    }
-  }
-
-  private flattenOr(expr: ExprNode): ExprNode[] {
+  private flattenOr(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
-      return [...this.flattenOr(expr.left), ...this.flattenOr(expr.right)];
+      this.flattenOr(expr.left, out);
+      this.flattenOr(expr.right, out);
+    } else {
+      out.push(expr);
     }
-    return [expr];
+    return out;
   }
 }

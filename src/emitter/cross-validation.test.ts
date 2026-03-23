@@ -1,6 +1,6 @@
 import { describe, it, before } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vm from 'node:vm';
 import { Parser } from '../parser.js';
@@ -132,6 +132,23 @@ function createOurEmitterInVM(nipLines: string[], filename: string, strategy?: D
   binder.bindFile(file);
   const emitter = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: strategy });
   const js = emitter.emit([file]);
+  const ctx: Record<string, any> = { helpers: HELPERS };
+  vm.createContext(ctx);
+  const factory = vm.runInContext(js, ctx, { filename: 'emitted.js' });
+  return factory(HELPERS);
+}
+
+function createMultiFileEmitterInVM(
+  fileEntries: { lines: string[]; filename: string }[],
+  strategy?: DispatchStrategy,
+) {
+  const files = fileEntries.map(({ lines, filename }) => {
+    const file = parser.parseFile(lines.join('\n'), filename);
+    binder.bindFile(file);
+    return file;
+  });
+  const emitter = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: strategy });
+  const js = emitter.emit(files);
   const ctx: Record<string, any> = { helpers: HELPERS };
   vm.createContext(ctx);
   const factory = vm.runInContext(js, ctx, { filename: 'emitted.js' });
@@ -342,18 +359,26 @@ describe('Benchmark: fair comparison (all in VM)', () => {
   let lookupVM: ReturnType<typeof createOurEmitter>;
   let items: ReturnType<typeof makeItem>[];
 
+  const nipDir = join(ROOT, 'nip');
+  const nipFilenames = readdirSync(nipDir).filter(f => f.endsWith('.nip'));
+
   before(() => {
-    const koltonContent = readFileSync(join(ROOT, 'nip/kolton.nip'), 'utf-8');
-    const koltonLines = koltonContent.split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 0 && !l.startsWith('//'));
+    const fileEntries = nipFilenames.map(f => {
+      const content = readFileSync(join(nipDir, f), 'utf-8');
+      const lines = content.split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && !l.startsWith('//'));
+      return { lines, filename: f };
+    });
 
     original = createOriginalNTIP();
-    for (const line of koltonLines) {
-      try { original.addLine(line, 'kolton.nip'); } catch {}
+    for (const { lines, filename } of fileEntries) {
+      for (const line of lines) {
+        try { original.addLine(line, filename); } catch {}
+      }
     }
-    switchVM = createOurEmitterInVM(koltonLines, 'kolton.nip', DispatchStrategy.Switch);
-    lookupVM = createOurEmitterInVM(koltonLines, 'kolton.nip', DispatchStrategy.ObjectLookup);
+    switchVM = createMultiFileEmitterInVM(fileEntries, DispatchStrategy.Switch);
+    lookupVM = createMultiFileEmitterInVM(fileEntries, DispatchStrategy.ObjectLookup);
 
     items = TEST_ITEMS.map(t => makeItem(t.mock));
 
@@ -388,7 +413,7 @@ describe('Benchmark: fair comparison (all in VM)', () => {
     };
 
     console.log('');
-    console.log(`  All running in VM (fair comparison):`);
+    console.log(`  All running in VM (fair comparison, ${nipFilenames.length} nip files):`);
     console.log(`  Original NTIP:         ${fmt(elapsedOrig)}`);
     console.log(`  Switch dispatch:       ${fmt(elapsedSwitch)}`);
     console.log(`  Object lookup:         ${fmt(elapsedLookup)}`);
