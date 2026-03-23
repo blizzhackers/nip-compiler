@@ -147,14 +147,15 @@ export class Emitter {
     for (let i = 0; i < codeLines.length; i++) {
       const trimmed = codeLines[i].trim();
 
-      // Block boundaries reset to runtime (prevents fallback to last .nip mapping)
+      // Block boundaries reset — map to the generated file itself to prevent
+      // Node falling back to the last .nip mapping
       if (trimmed.startsWith('case ') || trimmed.startsWith('switch(') ||
           trimmed.startsWith('function ') || trimmed.startsWith('break') ||
           trimmed.startsWith('return') || trimmed.startsWith('let ') ||
           trimmed === '}' || trimmed === '})' || trimmed === '') {
         if (current !== null) {
           current = null;
-          smb.addMapping(i + 1, 0, '<runtime>', 0);
+          smb.addMapping(i + 1, 0, outputFilename, i);
         }
         continue;
       }
