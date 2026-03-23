@@ -316,7 +316,7 @@ export class Emitter {
     }
 
     // Group consecutive rules by shared flag residual to avoid repeated getFlag calls
-    const groups = this.groupByFlagResidual(alive);
+    const groups = this.groupBySharedCondition(alive);
 
     if (isTier) {
       // Tier functions: no unid optimization, emit hoisted vars + all rules
@@ -394,19 +394,19 @@ export class Emitter {
     }
   }
 
-  private groupByFlagResidual(rules: GroupedRule[]): FlagGroup[] {
+  private groupBySharedCondition(rules: GroupedRule[]): FlagGroup[] {
     const groups: FlagGroup[] = [];
     let current: FlagGroup | null = null;
 
     for (const rule of rules) {
-      const flagExpr = this.extractFlagCondition(rule.residualProperty);
+      const extracted = this.extractGroupableCondition(rule.residualProperty);
 
-      if (flagExpr) {
-        const flagJs = this.codegen.emitPropertyExpr(flagExpr.condition);
-        if (current && current.flagCondition === flagJs) {
-          current.rules.push({ original: rule, stripped: { ...rule, residualProperty: flagExpr.rest } });
+      if (extracted) {
+        const condJs = this.codegen.emitPropertyExpr(extracted.condition);
+        if (current && current.flagCondition === condJs) {
+          current.rules.push({ original: rule, stripped: { ...rule, residualProperty: extracted.rest } });
         } else {
-          current = { flagCondition: flagJs, rules: [{ original: rule, stripped: { ...rule, residualProperty: flagExpr.rest } }] };
+          current = { flagCondition: condJs, rules: [{ original: rule, stripped: { ...rule, residualProperty: extracted.rest } }] };
           groups.push(current);
         }
       } else {
@@ -415,7 +415,7 @@ export class Emitter {
       }
     }
 
-    // Only wrap in if-block when 2+ rules share the same flag
+    // Only wrap in if-block when 2+ rules share the same condition
     return groups.map(g => {
       if (g.flagCondition && g.rules.length < 2) {
         return { flagCondition: null, rules: [{ original: g.rules[0].original, stripped: g.rules[0].original }] };
@@ -424,29 +424,35 @@ export class Emitter {
     });
   }
 
-  private extractFlagCondition(expr: ExprNode | null): { condition: ExprNode; rest: ExprNode | null } | null {
+  private extractGroupableCondition(expr: ExprNode | null): { condition: ExprNode; rest: ExprNode | null } | null {
     if (!expr) return null;
     if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return null;
 
-    // Check if left side is a flag check
-    if (this.isFlagExpr(expr.left)) {
+    // Check if left side is a simple property condition
+    if (this.isPropertyOnlyExpr(expr.left)) {
       return { condition: expr.left, rest: expr.right };
     }
-    // Check if right side is a flag check
-    if (this.isFlagExpr(expr.right)) {
+    // Check right side
+    if (this.isPropertyOnlyExpr(expr.right)) {
       return { condition: expr.right, rest: expr.left };
     }
     return null;
   }
 
-  private isFlagExpr(expr: ExprNode): boolean {
-    if (expr.kind === NodeKind.BinaryExpr && (expr.op === '==' || expr.op === '!=')) {
-      if (expr.left.kind === NodeKind.KeywordExpr && expr.left.name === 'flag') return true;
+  private isPropertyOnlyExpr(expr: ExprNode): boolean {
+    switch (expr.kind) {
+      case NodeKind.KeywordExpr:
+        return expr.name in { flag: 1, quality: 1, class: 1, level: 1, classid: 1, name: 1, type: 1, color: 1 };
+      case NodeKind.BinaryExpr:
+        if (expr.op === '==' || expr.op === '!=' || expr.op === '<=' || expr.op === '>=' || expr.op === '<' || expr.op === '>') {
+          return this.isPropertyOnlyExpr(expr.left) || expr.right.kind === NodeKind.NumberLiteral || expr.right.kind === NodeKind.Identifier;
+        }
+        return false;
+      case NodeKind.UnaryExpr:
+        return this.isPropertyOnlyExpr(expr.operand);
+      default:
+        return false;
     }
-    if (expr.kind === NodeKind.UnaryExpr) {
-      return this.isFlagExpr(expr.operand);
-    }
-    return false;
   }
 
   private reorderBySelectivity(expr: ExprNode): ExprNode {
@@ -596,7 +602,7 @@ export class Emitter {
 
   private getFlagKey(expr: ExprNode | null): string {
     if (!expr) return '';
-    const flag = this.extractFlagCondition(expr);
+    const flag = this.extractGroupableCondition(expr);
     if (!flag) return '';
     return this.codegen.emitPropertyExpr(flag.condition);
   }
