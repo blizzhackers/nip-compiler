@@ -21,6 +21,7 @@ Options:
   --minify                 Strip comments and whitespace for smallest output
   --no-comments            Omit source comments
   --format <type>          Output format: iife (default), esm, cjs
+  --kolbot                 Emit CJS with kolbot-compatible verbose format
   --sourcemap              Generate .map source map file
   -h, --help               Show this help`);
   process.exit(0);
@@ -32,6 +33,7 @@ let pretty = false;
 let minify = false;
 let comments = true;
 let format = 'iife' as string;
+let kolbot = false;
 let sourcemap = false;
 const files: string[] = [];
 
@@ -45,6 +47,7 @@ for (let i = 0; i < args.length; i++) {
   }
   if (arg === '--pretty') { pretty = true; continue; }
   if (arg === '--minify') { minify = true; comments = false; continue; }
+  if (arg === '--kolbot') { kolbot = true; format = 'cjs'; continue; }
   if (arg === '--no-comments') { comments = false; continue; }
   if (arg === '--format') { format = args[++i] as typeof format; continue; }
   if (arg === '--sourcemap') { sourcemap = true; continue; }
@@ -86,6 +89,7 @@ const emitter = new Emitter({
   dispatchStrategy: strategy,
   prettyPrint: pretty,
   minify,
+  kolbotCompat: kolbot,
 });
 
 const outputName = output ? basename(output) : 'checkItem.js';

@@ -223,7 +223,11 @@ export class Emitter {
     lines.push('const r=_ci(i,i.getFlag(16));');
     lines.push('if(!verbose)return r>0?1:r<0?-1:0;');
     lines.push('const id=(r>0?r:-r)-1,e=id>=0?_s[id]:null;');
-    lines.push('return{result:r>0?1:r<0?-1:0,file:e?_f[e[0]]:null,line:e?e[1]:0};');
+    if (this.config.kolbotCompat) {
+      lines.push('return{result:r>0?1:r<0?-1:0,line:e?_f[e[0]]+" #"+e[1]:null};');
+    } else {
+      lines.push('return{result:r>0?1:r<0?-1:0,file:e?_f[e[0]]:null,line:e?e[1]:0};');
+    }
     lines.push('}');
     return lines.join('\n');
   }

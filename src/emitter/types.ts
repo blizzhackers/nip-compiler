@@ -85,4 +85,5 @@ export interface EmitterConfig {
   dispatchStrategy?: DispatchStrategy;
   prettyPrint?: boolean;
   minify?: boolean;
+  kolbotCompat?: boolean;
 }
