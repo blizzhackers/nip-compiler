@@ -75,8 +75,7 @@ export class Emitter {
     const lines: string[] = [];
 
     if (this.config.kolbotCompat) {
-      if (this.outputFormat === 'cjs') lines.push('module.exports=(function(){');
-      else lines.push('(function(){');
+      lines.push('(function(module,NTIP,me,getBaseStat){');
       lines.push('const checkQuantityOwned=NTIP.CheckQuantityOwned;');
     } else {
       switch (this.outputFormat) {
@@ -120,12 +119,11 @@ export class Emitter {
     const insertIdx = lines.indexOf('') + 1;
     lines.splice(insertIdx, 0, fileLine, srcLine);
 
-    const exports = 'return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};';
     if (this.config.kolbotCompat) {
-      lines.push(exports);
-      if (this.outputFormat === 'cjs') lines.push('})()');
-      else lines.push('})()');
+      lines.push('module.exports={checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
+      lines.push('})(module,NTIP,me,getBaseStat)');
     } else {
+      const exports = 'return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};';
       switch (this.outputFormat) {
         case 'cjs': lines.push(exports); lines.push('}'); break;
         case 'esm': lines.push(exports); lines.push('}'); break;
