@@ -6,7 +6,7 @@ import { Parser } from './parser.js';
 import { Binder } from './binder.js';
 import { Emitter } from './emitter/emitter.js';
 import { d2Aliases } from './emitter/d2-aliases.js';
-import { DispatchStrategy } from './emitter/types.js';
+import { DispatchStrategy, OutputFormat } from './emitter/types.js';
 import { NipFileNode } from './types.js';
 
 const args = process.argv.slice(2);
@@ -32,7 +32,7 @@ let strategy: DispatchStrategy = DispatchStrategy.Switch;
 let pretty = false;
 let minify = false;
 let comments = true;
-let format = 'iife' as string;
+let format: OutputFormat = OutputFormat.IIFE;
 let kolbot = false;
 let sourcemap = false;
 const files: string[] = [];
@@ -47,9 +47,13 @@ for (let i = 0; i < args.length; i++) {
   }
   if (arg === '--pretty') { pretty = true; continue; }
   if (arg === '--minify') { minify = true; comments = false; continue; }
-  if (arg === '--kolbot') { kolbot = true; format = 'cjs'; continue; }
+  if (arg === '--kolbot') { kolbot = true; format = OutputFormat.CJS; continue; }
   if (arg === '--no-comments') { comments = false; continue; }
-  if (arg === '--format') { format = args[++i] as typeof format; continue; }
+  if (arg === '--format') {
+    const val = args[++i];
+    format = val === 'esm' ? OutputFormat.ESM : val === 'cjs' ? OutputFormat.CJS : OutputFormat.IIFE;
+    continue;
+  }
   if (arg === '--sourcemap') { sourcemap = true; continue; }
   files.push(arg);
 }
@@ -90,21 +94,14 @@ const emitter = new Emitter({
   prettyPrint: pretty,
   minify,
   kolbotCompat: kolbot,
+  outputFormat: format,
 });
 
 const outputName = output ? basename(output) : 'checkItem.js';
 
 if (sourcemap && output) {
   const result = emitter.emitWithSourceMap(parsed, outputName);
-  let js = result.code;
-
-  if (format === 'esm') {
-    js = js.replace(/^\(function\(helpers\)\{/, 'export default function(helpers){');
-    js = js.replace(/\}\)$/, '}');
-  } else if (format === 'cjs') {
-    js = js.replace(/^\(function\(helpers\)\{/, 'module.exports=function(helpers){');
-    js = js.replace(/\}\)$/, '}');
-  }
+  const js = result.code;
 
   mkdirSync(dirname(resolve(output)), { recursive: true });
   writeFileSync(resolve(output), js);
@@ -112,15 +109,7 @@ if (sourcemap && output) {
   console.error(`\nWritten ${output} (${(js.length / 1024).toFixed(1)}kb)`);
   console.error(`Written ${output}.map (${(result.map.length / 1024).toFixed(1)}kb)`);
 } else {
-  let js = emitter.emit(parsed);
-
-  if (format === 'esm') {
-    js = js.replace(/^\(function\(helpers\)\{/, 'export default function(helpers){');
-    js = js.replace(/\}\)$/, '}');
-  } else if (format === 'cjs') {
-    js = js.replace(/^\(function\(helpers\)\{/, 'module.exports=function(helpers){');
-    js = js.replace(/\}\)$/, '}');
-  }
+  const js = emitter.emit(parsed);
 
   if (output) {
     mkdirSync(dirname(resolve(output)), { recursive: true });

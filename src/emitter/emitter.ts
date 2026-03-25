@@ -14,7 +14,7 @@ interface RuleBlock {
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
-import { AliasMapSet, BASE_STATS, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule } from './types.js';
+import { AliasMapSet, BASE_STATS, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule, OutputFormat } from './types.js';
 import { formatJs, minifyJs } from './formatter.js';
 import { SourceMapBuilder } from './sourcemap.js';
 
@@ -28,12 +28,14 @@ export class Emitter {
   private fileTable: string[] = [];
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
+  private outputFormat: OutputFormat;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
     this.grouper = new Grouper(config.aliases);
     this.codegen = new CodeGen(config.aliases);
     this.comments = config.includeSourceComments ?? true;
+    this.outputFormat = config.outputFormat ?? OutputFormat.IIFE;
   }
 
   private getFileId(filename: string): number {
@@ -72,10 +74,20 @@ export class Emitter {
     const plan = this.grouper.group(allLines);
     const lines: string[] = [];
 
-    lines.push('(function(helpers){');
-    lines.push('const checkQuantityOwned=helpers.checkQuantityOwned;');
-    lines.push('const me=helpers.me;');
-    lines.push('const getBaseStat=helpers.getBaseStat;');
+    if (this.config.kolbotCompat) {
+      if (this.outputFormat === 'cjs') lines.push('module.exports=(function(){');
+      else lines.push('(function(){');
+      lines.push('const checkQuantityOwned=NTIP.CheckQuantityOwned;');
+    } else {
+      switch (this.outputFormat) {
+        case 'cjs': lines.push('module.exports=function(helpers){'); break;
+        case 'esm': lines.push('export default function(helpers){'); break;
+        default: lines.push('(function(helpers){'); break;
+      }
+      lines.push('const checkQuantityOwned=helpers.checkQuantityOwned;');
+      lines.push('const me=helpers.me;');
+      lines.push('const getBaseStat=helpers.getBaseStat;');
+    }
     lines.push('');
 
     // MaxQuantity helper references
@@ -108,8 +120,18 @@ export class Emitter {
     const insertIdx = lines.indexOf('') + 1;
     lines.splice(insertIdx, 0, fileLine, srcLine);
 
-    lines.push('return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
-    lines.push('})');
+    const exports = 'return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};';
+    if (this.config.kolbotCompat) {
+      lines.push(exports);
+      if (this.outputFormat === 'cjs') lines.push('})()');
+      else lines.push('})()');
+    } else {
+      switch (this.outputFormat) {
+        case 'cjs': lines.push(exports); lines.push('}'); break;
+        case 'esm': lines.push(exports); lines.push('}'); break;
+        default: lines.push(exports); lines.push('})'); break;
+      }
+    }
 
     const raw = lines.join('\n');
     if (this.config.minify) return minifyJs(raw);

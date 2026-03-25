@@ -79,6 +79,12 @@ export function getAliasMap(aliases: AliasMapSet, keyword: string): Record<strin
   }
 }
 
+export const enum OutputFormat {
+  IIFE = 'iife',
+  ESM = 'esm',
+  CJS = 'cjs',
+}
+
 export interface EmitterConfig {
   aliases: AliasMapSet;
   includeSourceComments?: boolean;
@@ -86,4 +92,5 @@ export interface EmitterConfig {
   prettyPrint?: boolean;
   minify?: boolean;
   kolbotCompat?: boolean;
+  outputFormat?: OutputFormat;
 }
