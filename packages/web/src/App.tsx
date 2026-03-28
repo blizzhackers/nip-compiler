@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { compile, type CompileOptions, type CompileResult } from './compiler';
 import { getDefaultFiles, type NipFileEntry } from './nip-files';
 import { FileTree } from './components/FileTree';
 import { Editor } from './components/Editor';
 import { OutputPanel } from './components/OutputPanel';
 import { OptionsBar } from './components/OptionsBar';
+import { ResizeHandle } from './components/ResizeHandle';
 import './App.css';
 
 export function App() {
@@ -58,6 +59,15 @@ export function App() {
   }, []);
 
   const active = files[activeIdx] ?? files[0];
+  const mainRef = useRef<HTMLDivElement>(null);
+  const [splitFraction, setSplitFraction] = useState(0.55);
+
+  const handleResize = useCallback((deltaX: number) => {
+    const main = mainRef.current;
+    if (!main) return;
+    const available = main.clientWidth - 200; // subtract sidebar
+    setSplitFraction(prev => Math.max(0.2, Math.min(0.8, prev + deltaX / available)));
+  }, []);
 
   return (
     <div className="app">
@@ -66,7 +76,9 @@ export function App() {
         <span className="header-sub">Compile .nip pickit files to optimized JavaScript</span>
       </header>
 
-      <div className="main">
+      <div className="main" ref={mainRef} style={{
+        gridTemplateColumns: `200px ${splitFraction}fr auto ${1 - splitFraction}fr`,
+      }}>
         <aside className="sidebar">
           <FileTree
             files={files}
@@ -97,6 +109,8 @@ export function App() {
             filename={active?.name ?? 'untitled.nip'}
           />
         </section>
+
+        <ResizeHandle onResize={handleResize} />
 
         <section className="output-section">
           <div className="compile-bar">

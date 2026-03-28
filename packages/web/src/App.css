@@ -40,8 +40,19 @@ body {
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);
+  /* columns set inline via style: sidebar | editor | handle | output */
   min-height: 0;
+}
+
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: #1a1f29;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover {
+  background: #7ee787;
 }
 
 /* Sidebar / File Tree */
