@@ -60,13 +60,16 @@ export function App() {
 
   const active = files[activeIdx] ?? files[0];
   const mainRef = useRef<HTMLDivElement>(null);
-  const [splitFraction, setSplitFraction] = useState(0.55);
+  const [editorWidth, setEditorWidth] = useState<number | null>(null);
 
   const handleResize = useCallback((deltaX: number) => {
-    const main = mainRef.current;
-    if (!main) return;
-    const available = main.clientWidth - 200; // subtract sidebar
-    setSplitFraction(prev => Math.max(0.2, Math.min(0.8, prev + deltaX / available)));
+    setEditorWidth(prev => {
+      const main = mainRef.current;
+      if (!main) return prev;
+      const available = main.clientWidth - 200 - 4; // sidebar + handle
+      const current = prev ?? available / 2;
+      return Math.max(200, Math.min(available - 200, current + deltaX));
+    });
   }, []);
 
   return (
@@ -77,7 +80,9 @@ export function App() {
       </header>
 
       <div className="main" ref={mainRef} style={{
-        gridTemplateColumns: `200px ${splitFraction}fr auto ${1 - splitFraction}fr`,
+        gridTemplateColumns: editorWidth
+          ? `200px ${editorWidth}px 4px 1fr`
+          : '200px 1fr 4px 1fr',
       }}>
         <aside className="sidebar">
           <FileTree
