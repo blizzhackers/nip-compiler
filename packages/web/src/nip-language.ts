@@ -34,6 +34,9 @@ export const nipLanguageDef: languages.IMonarchLanguage = {
       // Parenthesized group
       [/[()]/, 'delimiter.parenthesis'],
 
+      // Identifiers that start with digits (e.g. 2handed, 2hs)
+      [/\d+[a-zA-Z_][\w']*/, 'identifier'],
+
       // Numbers (including negative)
       [/-?\d+(\.\d+)?([eE][+-]?\d+)?/, 'number'],
 

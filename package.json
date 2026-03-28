@@ -5,6 +5,7 @@
     "test": "pnpm --filter @blizzhackers/nip-compiler test",
     "dev": "pnpm --filter @nip-compiler/web dev"
   },
+  "packageManager": "pnpm@10.6.3",
   "engines": {
     "node": ">=24"
   }
