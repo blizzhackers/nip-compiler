@@ -54,6 +54,10 @@ export class Binder {
     const allDiagnostics: Diagnostic[] = [];
     for (const line of node.lines) {
       const { diagnostics } = this.bindLine(line);
+      // Offset diagnostic lines to file-level line numbers
+      for (const diag of diagnostics) {
+        diag.loc = { ...diag.loc, line: line.lineNumber };
+      }
       allDiagnostics.push(...diagnostics);
     }
     return { node, diagnostics: allDiagnostics };
@@ -127,8 +131,8 @@ export class Binder {
 
   private bindPropertyComparison(expr: BinaryExprNode): void {
     this.bindPropertyExpr(expr.left);
-    // Right side: if the left is a keyword, validate the value
-    if (expr.left.kind === NodeKind.KeywordExpr && expr.right.kind === NodeKind.Identifier) {
+    // Only validate values for == (exact match). >= / <= use aliases as numeric bounds
+    if (expr.op === '==' && expr.left.kind === NodeKind.KeywordExpr && expr.right.kind === NodeKind.Identifier) {
       this.validatePropertyValue(expr.left, expr.right);
     } else {
       this.bindPropertyExpr(expr.right);

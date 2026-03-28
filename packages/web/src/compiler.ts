@@ -27,17 +27,37 @@ interface CompileError {
 export function compile(files: NipFile[], options: CompileOptions): CompileResult {
   try {
     const parser = new Parser();
-    const binder = new Binder();
+    const knownStats = new Set(Object.keys(d2Aliases.stat));
+    const knownPropertyValues = new Map<string, Set<string>>([
+      ['name', new Set(Object.keys(d2Aliases.classId))],
+      ['classid', new Set(Object.keys(d2Aliases.classId))],
+      ['type', new Set(Object.keys(d2Aliases.type))],
+      ['quality', new Set(Object.keys(d2Aliases.quality))],
+      ['flag', new Set(Object.keys(d2Aliases.flag))],
+      ['color', new Set(Object.keys(d2Aliases.color))],
+      ['class', new Set(Object.keys(d2Aliases.class))],
+    ]);
+    const binder = new Binder({ knownStats, knownPropertyValues });
 
     let ruleCount = 0;
+    const errors: string[] = [];
     const parsed = files
       .filter(f => f.content.trim().length > 0)
       .map(f => {
         const ast = parser.parseFile(f.content, f.name);
-        binder.bindFile(ast);
+        const result = binder.bindFile(ast);
+        for (const diag of result.diagnostics) {
+          if (diag.severity === 'error') {
+            errors.push(`${f.name}:${diag.loc.line}: ${diag.message}`);
+          }
+        }
         ruleCount += ast.lines.filter(l => l.property || l.stats).length;
         return ast;
       });
+
+    if (errors.length > 0) {
+      return { success: false, error: errors.join('\n') };
+    }
 
     if (parsed.length === 0) {
       return { success: false, error: 'No files to compile' };
