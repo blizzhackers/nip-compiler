@@ -15,7 +15,7 @@ If you use [kolbot](https://github.com/blizzhackers/kolbot) for Diablo 2, your p
 3. Upload your own `.nip` files or paste rules inline
 4. Click **Compile**
 5. Download `checkItem.js` and drop it into your kolbot `pickit/compiled/` folder
-6. Add `require("pickit/compiled/checkItem.js");` to your `Pickit.init()`
+6. ~~Add `require("pickit/compiled/checkItem.js");` to your `Pickit.init()`~~ *(kolbot integration in development)*
 
 The compiler validates your rules as you type — unknown item names, stat keywords, and syntax errors show up as red squigglies in the editor.
 
