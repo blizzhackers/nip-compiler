@@ -42,7 +42,7 @@ export class Parser {
       } catch (e) {
         if (e instanceof ParseError || e instanceof LexerError) {
           const formatted = formatError(rawLines[i], 1, e.col, e.message, `${filename}:${i + 1}`);
-          throw new ParseError(formatted, e.line, e.col, e.pos);
+          throw new ParseError(formatted, i + 1, e.col, e.pos);
         }
         throw e;
       }
