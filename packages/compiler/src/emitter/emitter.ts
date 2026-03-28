@@ -89,8 +89,18 @@ export class Emitter {
     }
     lines.push('');
 
-    // MaxQuantity rules — must be before functions that reference _mq
     const mqRules = allLines.filter(a => a.maxQuantity !== null);
+
+    lines.push(this.emitCheckItem(plan, mqRules.map(m => m.source)));
+    lines.push('');
+    lines.push(this.emitTierFunction('getTier', 'tierExpr', plan));
+    lines.push('');
+    lines.push(this.emitTierFunction('getMercTier', 'mercTierExpr', plan));
+    lines.push('');
+
+    // Data tables at the bottom — functions above are hoisted
+    lines.push('const _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];');
+    lines.push('const _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];');
     if (mqRules.length > 0) {
       lines.push('const _mq=[');
       for (const mq of mqRules) {
@@ -103,19 +113,7 @@ export class Emitter {
         lines.push(`{prop:${propJs},stat:${statJs},max:${mq.maxQuantity}},`);
       }
       lines.push('];');
-      lines.push('');
     }
-
-    lines.push(this.emitCheckItem(plan, mqRules.map(m => m.source)));
-    lines.push('');
-    lines.push(this.emitTierFunction('getTier', 'tierExpr', plan));
-    lines.push('');
-    lines.push(this.emitTierFunction('getMercTier', 'mercTierExpr', plan));
-    lines.push('');
-
-    // Source tables at the bottom (only used by checkItem's verbose path)
-    lines.push('const _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];');
-    lines.push('const _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];');
 
     if (this.config.kolbotCompat) {
       lines.push('const _mod={checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
