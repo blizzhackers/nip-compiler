@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { compile, type CompileOptions, type CompileResult } from './compiler';
 import { getDefaultFiles, type NipFileEntry } from './nip-files';
 import { FileTree } from './components/FileTree';
@@ -18,9 +18,17 @@ export function App() {
   });
   const [result, setResult] = useState<CompileResult | null>(null);
 
-  const handleCompile = useCallback(() => {
-    const enabled = files.filter(f => f.enabled);
-    setResult(compile(enabled, options));
+  // Auto-compile on change (debounced)
+  const compileTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    clearTimeout(compileTimer.current);
+    compileTimer.current = setTimeout(() => {
+      const enabled = files.filter(f => f.enabled);
+      if (enabled.length > 0) {
+        setResult(compile(enabled, options));
+      }
+    }, 500);
+    return () => clearTimeout(compileTimer.current);
   }, [files, options]);
 
   const handleToggle = useCallback((idx: number) => {
@@ -61,6 +69,7 @@ export function App() {
   const active = files[activeIdx] ?? files[0];
   const mainRef = useRef<HTMLDivElement>(null);
   const [editorWidth, setEditorWidth] = useState<number | null>(null);
+  const [dropping, setDropping] = useState(false);
 
   const handleResize = useCallback((deltaX: number) => {
     setEditorWidth(prev => {
@@ -72,8 +81,34 @@ export function App() {
     });
   }, []);
 
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDropping(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDropping(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropping(false);
+    const uploaded: { name: string; content: string }[] = [];
+    for (const file of Array.from(e.dataTransfer.files)) {
+      if (file.name.endsWith('.nip')) {
+        uploaded.push({ name: file.name, content: await file.text() });
+      }
+    }
+    if (uploaded.length > 0) handleUpload(uploaded);
+  }, [handleUpload]);
+
   return (
-    <div className="app">
+    <div
+      className={`app ${dropping ? 'dropping' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <header className="header">
         <h1>NIP Compiler</h1>
         <span className="header-sub">Compile .nip pickit files to optimized JavaScript</span>
@@ -120,9 +155,6 @@ export function App() {
         <section className="output-section">
           <div className="compile-bar">
             <OptionsBar options={options} onChange={setOptions} />
-            <button className="compile-btn" onClick={handleCompile}>
-              Compile ({files.filter(f => f.enabled).length} files)
-            </button>
           </div>
           <OutputPanel result={result} />
         </section>
