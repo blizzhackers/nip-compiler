@@ -120,7 +120,9 @@ export class Emitter {
     lines.splice(insertIdx, 0, fileLine, srcLine);
 
     if (this.config.kolbotCompat) {
-      lines.push('module.exports={checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
+      lines.push('const _mod={checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');
+      lines.push('NTIP.addCompiled(_mod);');
+      lines.push('module.exports=_mod;');
       lines.push('})(module,NTIP,me,getBaseStat)');
     } else {
       const exports = 'return{checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};';
