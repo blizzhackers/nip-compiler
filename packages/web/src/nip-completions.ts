@@ -29,6 +29,7 @@ function toSuggestions(
   kind: languages.CompletionItemKind,
   range: any,
   detail?: string,
+  priority?: Record<string, string>,
 ): languages.CompletionItem[] {
   return items.map(label => ({
     label,
@@ -36,8 +37,18 @@ function toSuggestions(
     insertText: label,
     range,
     detail,
+    sortText: priority?.[label] ?? label,
   }));
 }
+
+const propertyPriority: Record<string, string> = {
+  name: '00_name',
+  quality: '01_quality',
+  type: '02_type',
+  flag: '03_flag',
+  class: '04_class',
+  level: '05_level',
+};
 
 export function createCompletionProvider(monaco: typeof import('monaco-editor')): languages.CompletionItemProvider {
   return {
@@ -80,8 +91,7 @@ export function createCompletionProvider(monaco: typeof import('monaco-editor'))
         } else if (afterHash) {
           suggestions.push(...toSuggestions(statKeywords, Kind.Field, range, 'stat'));
         } else {
-          suggestions.push(...toSuggestions(propertyKeywords, Kind.Keyword, range, 'property'));
-          // Also suggest aliases
+          suggestions.push(...toSuggestions(propertyKeywords, Kind.Keyword, range, 'property', propertyPriority));
           suggestions.push(...toSuggestions(Object.keys(propertyAliases), Kind.Keyword, range, 'alias'));
         }
       } else if (!afterHash || inMeta) {
