@@ -1,0 +1,34 @@
+{
+  "name": "@blizzhackers/nip-compiler",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "NIP file lexer, parser and code generator for Diablo 2 item filtering",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./aliases": {
+      "types": "./dist/emitter/d2-aliases.d.ts",
+      "import": "./dist/emitter/d2-aliases.js",
+      "default": "./dist/emitter/d2-aliases.js"
+    }
+  },
+  "bin": {
+    "nip-compile": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "start": "tsx src/index.ts",
+    "compile": "tsx src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

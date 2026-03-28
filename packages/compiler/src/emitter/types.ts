@@ -10,7 +10,7 @@ export interface AliasMapSet {
   class: Record<string, number>;
 }
 
-export const enum DispatchKind {
+export enum DispatchKind {
   Classid = 'classid',
   Type = 'type',
 }
@@ -48,7 +48,7 @@ export interface DispatchPlan {
   catchAll: GroupedRule[];
 }
 
-export const enum DispatchStrategy {
+export enum DispatchStrategy {
   Switch = 'switch',
   ObjectLookup = 'object-lookup',
 }
@@ -79,7 +79,7 @@ export function getAliasMap(aliases: AliasMapSet, keyword: string): Record<strin
   }
 }
 
-export const enum OutputFormat {
+export enum OutputFormat {
   IIFE = 'iife',
   ESM = 'esm',
   CJS = 'cjs',
