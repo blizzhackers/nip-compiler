@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import MonacoEditor from '@monaco-editor/react';
 import type { CompileResult } from '../compiler';
 
 interface Props {
@@ -51,7 +52,29 @@ export function OutputPanel({ result }: Props) {
           <button onClick={handleDownload}>Download</button>
         </div>
       </div>
-      <pre className="output-code"><code>{result.code}</code></pre>
+      <div className="output-editor">
+        <MonacoEditor
+          language="javascript"
+          theme="nip-dark"
+          value={result.code}
+          options={{
+            readOnly: true,
+            fontSize: 12,
+            fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
+            minimap: { enabled: false },
+            lineNumbers: 'on',
+            scrollBeyondLastLine: false,
+            wordWrap: 'on',
+            automaticLayout: true,
+            folding: true,
+            renderWhitespace: 'none',
+            scrollbar: {
+              verticalScrollbarSize: 8,
+              horizontalScrollbarSize: 8,
+            },
+          }}
+        />
+      </div>
     </div>
   );
 }

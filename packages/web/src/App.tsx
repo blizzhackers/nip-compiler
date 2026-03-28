@@ -94,6 +94,7 @@ export function App() {
           <Editor
             value={active?.content ?? ''}
             onChange={handleContentChange}
+            filename={active?.name ?? 'untitled.nip'}
           />
         </section>
 
