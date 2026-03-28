@@ -89,7 +89,7 @@ export class Emitter {
     }
     lines.push('');
 
-    // MaxQuantity helper references
+    // MaxQuantity rules — must be before functions that reference _mq
     const mqRules = allLines.filter(a => a.maxQuantity !== null);
     if (mqRules.length > 0) {
       lines.push('const _mq=[');
@@ -112,12 +112,10 @@ export class Emitter {
     lines.push('');
     lines.push(this.emitTierFunction('getMercTier', 'mercTierExpr', plan));
     lines.push('');
-    // File table + source table — emitted after all rules so all IDs are collected
-    // _f=["kolton.nip","gold.nip"]; _s=[[fileIdx,line],...]
-    const fileLine = 'const _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];';
-    const srcLine = 'const _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];';
-    const insertIdx = lines.indexOf('') + 1;
-    lines.splice(insertIdx, 0, fileLine, srcLine);
+
+    // Source tables at the bottom (only used by checkItem's verbose path)
+    lines.push('const _f=[' + this.fileTable.map(f => `"${f}"`).join(',') + '];');
+    lines.push('const _s=[' + this.sourceTable.map(([f, l]) => `[${f},${l}]`).join(',') + '];');
 
     if (this.config.kolbotCompat) {
       lines.push('const _mod={checkItem:checkItem,getTier:getTier,getMercTier:getMercTier};');

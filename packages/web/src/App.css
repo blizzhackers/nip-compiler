@@ -201,6 +201,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .compile-bar {
@@ -319,4 +320,10 @@ body {
 .output-editor {
   flex: 1;
   min-height: 0;
+  height: 100%;
+}
+
+.output-panel:not(.empty):not(.error) {
+  display: flex;
+  flex-direction: column;
 }

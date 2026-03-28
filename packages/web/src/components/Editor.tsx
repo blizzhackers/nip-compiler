@@ -40,7 +40,7 @@ export function Editor({ value, onChange, filename }: Props) {
         minimap: { enabled: false },
         lineNumbers: 'on',
         scrollBeyondLastLine: false,
-        wordWrap: 'on',
+        wordWrap: 'off',
         renderWhitespace: 'none',
         tabSize: 2,
         automaticLayout: true,
