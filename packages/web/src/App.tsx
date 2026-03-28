@@ -82,7 +82,7 @@ export function App() {
       <div className="main" ref={mainRef} style={{
         gridTemplateColumns: editorWidth
           ? `200px ${editorWidth}px 4px 1fr`
-          : '200px 1fr 4px 1fr',
+          : '200px 3fr 4px 2fr',
       }}>
         <aside className="sidebar">
           <FileTree
