@@ -1,9 +1,20 @@
 import { useEffect, useRef } from 'react';
 import type { editor } from 'monaco-editor';
-import { Parser, Binder } from '@blizzhackers/nip-compiler';
+import { Parser, Binder, d2Aliases } from '@blizzhackers/nip-compiler';
 
 const parser = new Parser();
-const binder = new Binder();
+
+const knownStats = new Set(Object.keys(d2Aliases.stat));
+const knownPropertyValues = new Map<string, Set<string>>([
+  ['name', new Set(Object.keys(d2Aliases.classId))],
+  ['classid', new Set(Object.keys(d2Aliases.classId))],
+  ['type', new Set(Object.keys(d2Aliases.type))],
+  ['quality', new Set(Object.keys(d2Aliases.quality))],
+  ['flag', new Set(Object.keys(d2Aliases.flag))],
+  ['color', new Set(Object.keys(d2Aliases.color))],
+  ['class', new Set(Object.keys(d2Aliases.class))],
+]);
+const binder = new Binder({ knownStats, knownPropertyValues });
 
 export function useDiagnostics(
   monacoRef: React.MutableRefObject<typeof import('monaco-editor') | null>,
