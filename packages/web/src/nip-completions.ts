@@ -29,7 +29,7 @@ function toSuggestions(
   kind: languages.CompletionItemKind,
   range: any,
   detail?: string,
-  priority?: Record<string, string>,
+  sortFn?: (label: string) => string,
 ): languages.CompletionItem[] {
   return items.map(label => ({
     label,
@@ -37,8 +37,15 @@ function toSuggestions(
     insertText: label,
     range,
     detail,
-    sortText: priority?.[label] ?? label,
+    sortText: sortFn?.(label) ?? label,
   }));
+}
+
+// Short item codes (3-4 chars, often numeric prefix) sort last
+function itemSortKey(label: string): string {
+  if (label.length <= 4 && /\d/.test(label)) return `zz_${label}`;
+  if (label.length <= 3) return `zy_${label}`;
+  return label;
 }
 
 const propertyPriority: Record<string, string> = {
@@ -91,7 +98,7 @@ export function createCompletionProvider(monaco: typeof import('monaco-editor'))
         } else if (afterHash) {
           suggestions.push(...toSuggestions(statKeywords, Kind.Field, range, 'stat'));
         } else {
-          suggestions.push(...toSuggestions(propertyKeywords, Kind.Keyword, range, 'property', propertyPriority));
+          suggestions.push(...toSuggestions(propertyKeywords, Kind.Keyword, range, 'property', l => propertyPriority[l] ?? l));
           suggestions.push(...toSuggestions(Object.keys(propertyAliases), Kind.Keyword, range, 'alias'));
         }
       } else if (!afterHash || inMeta) {
@@ -103,7 +110,7 @@ export function createCompletionProvider(monaco: typeof import('monaco-editor'))
           const resolved = propertyAliases[kw] ?? kw;
           switch (resolved) {
             case 'name': case 'classid':
-              suggestions.push(...toSuggestions(classIdNames, Kind.Value, range, 'item'));
+              suggestions.push(...toSuggestions(classIdNames, Kind.Value, range, 'item', itemSortKey));
               break;
             case 'type':
               suggestions.push(...toSuggestions(typeNames, Kind.Value, range, 'type'));

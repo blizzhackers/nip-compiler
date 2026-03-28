@@ -579,5 +579,15 @@ describe('Parser', () => {
         assert.strictEqual(typeof e.pos, 'number');
       }
     });
+
+    it('parseFile error has file-level line number', () => {
+      try {
+        parser.parseFile('[name] == ring\n\n[name] == ', 'test.nip');
+        assert.fail('should have thrown');
+      } catch (e) {
+        assert.ok(e instanceof ParseError);
+        assert.strictEqual(e.line, 3, 'error should be on line 3, not line 1');
+      }
+    });
   });
 });

@@ -357,5 +357,39 @@ describe('Binder', () => {
       const { diagnostics } = binder.bindFile(file);
       assert.strictEqual(diagnostics.length, 0);
     });
+
+    it('diagnostics have file-level line numbers', () => {
+      const input = [
+        '[name] == ring',
+        '',
+        '[bogus] == 1',
+      ].join('\n');
+      const file = parser.parseFile(input);
+      const binder = new Binder();
+      const { diagnostics } = binder.bindFile(file);
+      assert.strictEqual(diagnostics.length, 1);
+      assert.strictEqual(diagnostics[0].loc.line, 3, 'diagnostic should be on line 3');
+    });
+
+    it('validates property values when knownPropertyValues provided', () => {
+      const input = '[name] == ber';
+      const file = parser.parseFile(input);
+      const binder = new Binder({
+        knownPropertyValues: new Map([['name', new Set(['berrune', 'ring'])]]),
+      });
+      const { diagnostics } = binder.bindFile(file);
+      assert.strictEqual(diagnostics.length, 1);
+      assert.ok(diagnostics[0].message.includes('ber'));
+    });
+
+    it('does not flag >= values against knownPropertyValues', () => {
+      const input = '[name] >= istrune && [name] <= zodrune';
+      const file = parser.parseFile(input);
+      const binder = new Binder({
+        knownPropertyValues: new Map([['name', new Set(['istrune', 'zodrune'])]]),
+      });
+      const { diagnostics } = binder.bindFile(file);
+      assert.strictEqual(diagnostics.length, 0);
+    });
   });
 });
