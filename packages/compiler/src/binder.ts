@@ -1,5 +1,5 @@
 import {
-  AstNode, Diagnostic, DiagnosticSeverity, ExprNode, KeywordExprNode,
+  AstNode, Diagnostic, DiagnosticSeverity, DiagnosticTag, ExprNode, KeywordExprNode,
   MetaEntryNode, MetaSectionNode, NipFileNode, NipLineNode, NodeKind,
   SectionNode, IdentifierNode, BinaryExprNode,
 } from './types.js';
@@ -41,13 +41,25 @@ export class Binder {
   private diagnostics: Diagnostic[] = [];
   private knownStats: Set<string> | null = null;
   private knownPropertyValues: Map<string, Set<string>> | null = null;
+  private classIdByValue: Map<number, string[]> | null = null;
+  private classIdByName: Record<string, number> | null = null;
 
   constructor(options?: {
     knownStats?: Set<string>;
     knownPropertyValues?: Map<string, Set<string>>;
+    classIdAliases?: Record<string, number>;
   }) {
     if (options?.knownStats) this.knownStats = options.knownStats;
     if (options?.knownPropertyValues) this.knownPropertyValues = options.knownPropertyValues;
+    if (options?.classIdAliases) {
+      this.classIdByName = options.classIdAliases;
+      this.classIdByValue = new Map();
+      for (const [name, id] of Object.entries(options.classIdAliases)) {
+        const list = this.classIdByValue.get(id);
+        if (list) list.push(name);
+        else this.classIdByValue.set(id, [name]);
+      }
+    }
   }
 
   bindFile(node: NipFileNode): BinderResult {
@@ -115,6 +127,10 @@ export class Binder {
       case NodeKind.BinaryExpr:
         if (isComparison(expr.op)) {
           this.bindPropertyComparison(expr);
+        } else if (expr.op === '&&') {
+          this.bindPropertyExpr(expr.left);
+          this.bindPropertyExpr(expr.right);
+          this.detectRange(expr);
         } else {
           this.bindPropertyExpr(expr.left);
           this.bindPropertyExpr(expr.right);
@@ -205,6 +221,71 @@ export class Binder {
       message,
       loc: node.loc,
     });
+  }
+
+  private info(node: { loc: { pos: number; line: number; col: number } }, message: string, tag?: DiagnosticTag): void {
+    this.diagnostics.push({
+      severity: DiagnosticSeverity.Info,
+      message,
+      loc: node.loc,
+      tag,
+    });
+  }
+
+  private detectRange(expr: BinaryExprNode): void {
+    if (!this.classIdByName || !this.classIdByValue) return;
+    if (expr.op !== '&&') return;
+
+    // Look for [name/classid] >= X && [name/classid] <= Y (or reversed)
+    const extractBound = (e: ExprNode): { keyword: string; op: string; value: number } | null => {
+      if (e.kind !== NodeKind.BinaryExpr) return null;
+      if (e.op !== '>=' && e.op !== '<=' && e.op !== '>' && e.op !== '<') return null;
+      if (e.left.kind !== NodeKind.KeywordExpr) return null;
+      const kw = e.left.name;
+      if (kw !== 'name' && kw !== 'classid') return null;
+      if (e.right.kind === NodeKind.NumberLiteral) return { keyword: kw, op: e.op, value: e.right.value };
+      if (e.right.kind === NodeKind.Identifier && e.right.name in this.classIdByName!) {
+        return { keyword: kw, op: e.op, value: this.classIdByName![e.right.name] };
+      }
+      return null;
+    };
+
+    const left = extractBound(expr.left);
+    const right = extractBound(expr.right);
+    if (!left || !right) return;
+    if (left.keyword !== right.keyword) return;
+
+    // Determine range [low, high]
+    let low: number, high: number;
+    if ((left.op === '>=' || left.op === '>') && (right.op === '<=' || right.op === '<')) {
+      low = left.op === '>' ? left.value + 1 : left.value;
+      high = right.op === '<' ? right.value - 1 : right.value;
+    } else if ((right.op === '>=' || right.op === '>') && (left.op === '<=' || left.op === '<')) {
+      low = right.op === '>' ? right.value + 1 : right.value;
+      high = left.op === '<' ? left.value - 1 : left.value;
+    } else {
+      return;
+    }
+
+    if (low > high) return;
+
+    // Collect matching item names
+    const matches: string[] = [];
+    for (let id = low; id <= high; id++) {
+      const names = this.classIdByValue!.get(id);
+      if (names) {
+        // Prefer the longest name (human-readable)
+        const best = names.reduce((a, b) => a.length >= b.length ? a : b);
+        matches.push(best);
+      }
+    }
+
+    if (matches.length > 0) {
+      const list = matches.length <= 15
+        ? matches.join(', ')
+        : matches.slice(0, 12).join(', ') + `, ... (${matches.length} total)`;
+      this.info(expr, `Matches ${matches.length} items: ${list}`, 'range');
+    }
   }
 }
 

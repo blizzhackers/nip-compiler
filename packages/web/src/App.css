@@ -51,6 +51,17 @@ body {
 .header-sub {
   color: #4a5568;
   font-size: 0.75rem;
+  flex: 1;
+}
+
+.header-gh {
+  color: #4a5568;
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.header-gh:hover {
+  color: #7ee787;
 }
 
 .main {

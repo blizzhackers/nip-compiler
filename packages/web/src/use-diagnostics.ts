@@ -14,7 +14,7 @@ const knownPropertyValues = new Map<string, Set<string>>([
   ['color', new Set(Object.keys(d2Aliases.color))],
   ['class', new Set(Object.keys(d2Aliases.class))],
 ]);
-const binder = new Binder({ knownStats, knownPropertyValues });
+const binder = new Binder({ knownStats, knownPropertyValues, classIdAliases: d2Aliases.classId });
 
 export function useDiagnostics(
   monacoRef: React.MutableRefObject<typeof import('monaco-editor') | null>,
@@ -44,7 +44,9 @@ export function useDiagnostics(
           markers.push({
             severity: diag.severity === 'error'
               ? monaco.MarkerSeverity.Error
-              : monaco.MarkerSeverity.Warning,
+              : diag.severity === 'warning'
+              ? monaco.MarkerSeverity.Warning
+              : monaco.MarkerSeverity.Info,
             message: diag.message,
             startLineNumber: diag.loc.line,
             startColumn: diag.loc.col,

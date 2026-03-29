@@ -112,6 +112,7 @@ export function App() {
       <header className="header">
         <h1>NIP Compiler</h1>
         <span className="header-sub">Compile .nip pickit files to optimized JavaScript</span>
+        <a className="header-gh" href="https://github.com/blizzhackers/nip-compiler" target="_blank" rel="noopener">GitHub</a>
       </header>
 
       <div className="main" ref={mainRef} style={{

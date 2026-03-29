@@ -3,6 +3,7 @@ import { strict as assert } from 'node:assert';
 import { Parser } from './parser.js';
 import { Binder } from './binder.js';
 import { DiagnosticSeverity, NodeKind, KeywordExprNode, BinaryExprNode } from './types.js';
+import { d2Aliases } from './emitter/d2-aliases.js';
 
 const parser = new Parser();
 
@@ -390,6 +391,39 @@ describe('Binder', () => {
       });
       const { diagnostics } = binder.bindFile(file);
       assert.strictEqual(diagnostics.length, 0);
+    });
+  });
+
+  describe('range resolution', () => {
+    it('resolves [name] >= istrune && [name] <= zodrune to matching items', () => {
+      const input = '[name] >= istrune && [name] <= zodrune';
+      const file = parser.parseFile(input);
+      const binder = new Binder({ classIdAliases: d2Aliases.classId });
+      const { diagnostics } = binder.bindFile(file);
+      const info = diagnostics.filter(d => d.tag === 'range');
+      assert.strictEqual(info.length, 1);
+      assert.ok(info[0].message.includes('berrune'), 'should list berrune');
+      assert.ok(info[0].message.includes('jahrune'), 'should list jahrune');
+      assert.ok(info[0].message.includes('zodrune'), 'should list zodrune');
+      assert.strictEqual(info[0].severity, DiagnosticSeverity.Info);
+    });
+
+    it('does not emit range info without classIdAliases', () => {
+      const input = '[name] >= istrune && [name] <= zodrune';
+      const file = parser.parseFile(input);
+      const binder = new Binder();
+      const { diagnostics } = binder.bindFile(file);
+      assert.strictEqual(diagnostics.filter(d => d.tag === 'range').length, 0);
+    });
+
+    it('handles reversed bounds', () => {
+      const input = '[name] <= zodrune && [name] >= istrune';
+      const file = parser.parseFile(input);
+      const binder = new Binder({ classIdAliases: d2Aliases.classId });
+      const { diagnostics } = binder.bindFile(file);
+      const info = diagnostics.filter(d => d.tag === 'range');
+      assert.strictEqual(info.length, 1);
+      assert.ok(info[0].message.includes('berrune'));
     });
   });
 });

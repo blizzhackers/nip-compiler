@@ -150,7 +150,10 @@ export type AstNode =
 export enum DiagnosticSeverity {
   Error = 'error',
   Warning = 'warning',
+  Info = 'info',
 }
+
+export type DiagnosticTag = 'duplicate' | 'unreachable' | 'range' | 'shadowed';
 
 export interface Diagnostic {
   severity: DiagnosticSeverity;
@@ -158,4 +161,5 @@ export interface Diagnostic {
   loc: SourceLocation;
   file?: string;
   line?: number;
+  tag?: DiagnosticTag;
 }
