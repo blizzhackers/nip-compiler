@@ -17,7 +17,29 @@ const propertyAliases: Record<string, string> = {
 const metaKeywords = ['tier', 'merctier', 'maxquantity', 'mq'];
 
 const statKeywords = Object.keys(d2Aliases.stat);
-const classIdNames = Object.keys(d2Aliases.classId);
+// Split classid names into full names and short codes
+// Items with multiple aliases: the shortest is the code, the longest is the name
+const classIdById = new Map<number, string[]>();
+for (const [name, id] of Object.entries(d2Aliases.classId)) {
+  if (!classIdById.has(id)) classIdById.set(id, []);
+  classIdById.get(id)!.push(name);
+}
+const classIdNames: string[] = [];
+const classIdCodes: string[] = [];
+const codeToFullName = new Map<string, string>();
+for (const names of classIdById.values()) {
+  if (names.length === 1) {
+    classIdNames.push(names[0]);
+  } else {
+    const sorted = [...names].sort((a, b) => b.length - a.length);
+    const fullName = sorted[0];
+    classIdNames.push(fullName);
+    for (let i = 1; i < sorted.length; i++) {
+      classIdCodes.push(sorted[i]);
+      codeToFullName.set(sorted[i], fullName);
+    }
+  }
+}
 const typeNames = Object.keys(d2Aliases.type);
 const qualityNames = Object.keys(d2Aliases.quality);
 const flagNames = Object.keys(d2Aliases.flag);
@@ -111,6 +133,14 @@ export function createCompletionProvider(monaco: typeof import('monaco-editor'))
           switch (resolved) {
             case 'name': case 'classid':
               suggestions.push(...toSuggestions(classIdNames, Kind.Value, range, 'item', itemSortKey));
+              suggestions.push(...classIdCodes.map(code => ({
+                label: code,
+                kind: Kind.Reference,
+                insertText: code,
+                range,
+                detail: codeToFullName.get(code) ?? 'item code',
+                sortText: `zz_${code}`,
+              })));
               break;
             case 'type':
               suggestions.push(...toSuggestions(typeNames, Kind.Value, range, 'type'));
