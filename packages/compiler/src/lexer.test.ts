@@ -305,6 +305,31 @@ describe('Lexer', () => {
       const types = tokenTypes('   \t  ');
       assert.deepStrictEqual(types, [TokenType.EOF]);
     });
+
+    it('captures leading trivia on tokens', () => {
+      const tokens = new Lexer('  [name]  ==  ring').tokenize();
+      assert.strictEqual(tokens[0].leadingTrivia, '  '); // [ has 2 spaces
+      assert.strictEqual(tokens[1].leadingTrivia, undefined); // name — no trivia (right after [)
+      assert.strictEqual(tokens[3].leadingTrivia, '  '); // == has 2 spaces
+      assert.strictEqual(tokens[4].leadingTrivia, '  '); // ring has 2 spaces
+    });
+
+    it('captures block comment as trivia', () => {
+      const tokens = new Lexer('[name] /* comment */ == ring').tokenize();
+      assert.ok(tokens[3].leadingTrivia?.includes('/* comment */'));
+      assert.strictEqual(tokens[3].type, TokenType.Equal);
+    });
+
+    it('trivia round-trips: leading trivia + values reconstruct original', () => {
+      const input = '  [name]  ==  ring  ';
+      const tokens = new Lexer(input).tokenize();
+      let reconstructed = '';
+      for (const t of tokens) {
+        if (t.leadingTrivia) reconstructed += t.leadingTrivia;
+        reconstructed += t.value;
+      }
+      assert.strictEqual(reconstructed, input);
+    });
   });
 
   describe('position tracking', () => {

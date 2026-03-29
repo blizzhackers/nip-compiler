@@ -5,6 +5,7 @@ export class Lexer {
   private line = 1;
   private col = 1;
   private tokens: Token[] = [];
+  private pendingTrivia = '';
 
   constructor(private readonly input: string) {}
 
@@ -13,20 +14,16 @@ export class Lexer {
     this.pos = 0;
     this.line = 1;
     this.col = 1;
+    this.pendingTrivia = '';
 
     while (this.pos < this.input.length) {
-      this.skipWhitespace();
+      this.collectTrivia();
       if (this.pos >= this.input.length) break;
 
       const ch = this.input[this.pos];
 
       if (ch === '/' && this.peek(1) === '/') {
         this.readLineComment();
-        continue;
-      }
-
-      if (ch === '/' && this.peek(1) === '*') {
-        this.skipBlockComment();
         continue;
       }
 
@@ -102,12 +99,15 @@ export class Lexer {
       );
     }
 
+    const trivia = this.pendingTrivia;
+    this.pendingTrivia = '';
     this.tokens.push({
       type: TokenType.EOF,
       value: '',
       pos: this.pos,
       line: this.line,
       col: this.col,
+      ...(trivia ? { leadingTrivia: trivia } : {}),
     });
 
     return this.tokens;
@@ -122,14 +122,20 @@ export class Lexer {
       && last.type !== TokenType.Identifier;
   }
 
-  private skipWhitespace(): void {
+  private collectTrivia(): void {
+    const start = this.pos;
     while (this.pos < this.input.length) {
       const ch = this.input[this.pos];
       if (ch === ' ' || ch === '\t' || ch === '\r') {
         this.advance();
+      } else if (ch === '/' && this.peek(1) === '*') {
+        this.consumeBlockComment();
       } else {
         break;
       }
+    }
+    if (this.pos > start) {
+      this.pendingTrivia += this.input.slice(start, this.pos);
     }
   }
 
@@ -143,12 +149,15 @@ export class Lexer {
   }
 
   private addToken(type: TokenType, value: string, len = 1): void {
+    const trivia = this.pendingTrivia;
+    this.pendingTrivia = '';
     this.tokens.push({
       type,
       value,
       pos: this.pos,
       line: this.line,
       col: this.col,
+      ...(trivia ? { leadingTrivia: trivia } : {}),
     });
     for (let i = 0; i < len; i++) this.advance();
   }
@@ -178,12 +187,15 @@ export class Lexer {
         }
       }
     }
+    const trivia = this.pendingTrivia;
+    this.pendingTrivia = '';
     this.tokens.push({
       type: TokenType.Number,
       value: this.input.slice(start, this.pos),
       pos: start,
       line: this.line,
       col: startCol,
+      ...(trivia ? { leadingTrivia: trivia } : {}),
     });
   }
 
@@ -193,16 +205,19 @@ export class Lexer {
     while (this.pos < this.input.length && this.isIdentPart(this.input[this.pos])) {
       this.advance();
     }
+    const trivia = this.pendingTrivia;
+    this.pendingTrivia = '';
     this.tokens.push({
       type: TokenType.Identifier,
       value: this.input.slice(start, this.pos),
       pos: start,
       line: this.line,
       col: startCol,
+      ...(trivia ? { leadingTrivia: trivia } : {}),
     });
   }
 
-  private skipBlockComment(): void {
+  private consumeBlockComment(): void {
     this.advance(); // skip /
     this.advance(); // skip *
     while (this.pos < this.input.length) {
@@ -230,12 +245,15 @@ export class Lexer {
     while (this.pos < this.input.length && this.input[this.pos] !== '\n') {
       this.advance();
     }
+    const trivia = this.pendingTrivia;
+    this.pendingTrivia = '';
     this.tokens.push({
       type: TokenType.Comment,
       value: this.input.slice(contentStart, this.pos).trim(),
       pos: start,
       line: this.line,
       col: startCol,
+      ...(trivia ? { leadingTrivia: trivia } : {}),
     });
   }
 

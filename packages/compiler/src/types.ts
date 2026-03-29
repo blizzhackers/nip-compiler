@@ -37,6 +37,7 @@ export interface Token {
   pos: number;
   line: number;
   col: number;
+  leadingTrivia?: string;
 }
 
 export interface SourceLocation {
