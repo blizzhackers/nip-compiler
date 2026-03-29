@@ -61,6 +61,7 @@ export const Editor = forwardRef<EditorHandle, Props>(({ value, onChange, filena
         quickSuggestions: { other: true, strings: false, comments: false },
         suggestOnTriggerCharacters: true,
         automaticLayout: true,
+        lightbulb: { enabled: 'on' as any },
         glyphMargin: true,
         folding: false,
         overviewRulerBorder: false,
