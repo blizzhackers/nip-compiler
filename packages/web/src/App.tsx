@@ -130,6 +130,7 @@ export function App() {
   const [editorWidth, setEditorWidth] = useState<number | null>(null);
   const [problemsHeight, setProblemsHeight] = useState(150);
   const [dropInfo, setDropInfo] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<'files' | 'editor' | 'output' | 'problems'>('editor');
   const editorRef = useRef<EditorHandle>(null);
   const pendingLine = useRef<number | null>(null);
 
@@ -188,25 +189,40 @@ export function App() {
         <a className="header-gh" href="https://github.com/blizzhackers/nip-compiler" target="_blank" rel="noopener">GitHub</a>
       </header>
 
-      <div className="main" ref={mainRef} style={{
+      <nav className="mobile-tabs">
+        {(['files', 'editor', 'output', 'problems'] as const).map(tab => (
+          <button
+            key={tab}
+            className={`mobile-tab ${mobileTab === tab ? 'active' : ''}`}
+            onClick={() => setMobileTab(tab)}
+          >
+            {tab === 'files' ? `Files (${files.filter(f => f.enabled).length})` :
+             tab === 'problems' && result?.success && result.warnings.length > 0
+              ? `Problems (${result.warnings.length})` :
+             tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </nav>
+
+      <div className="main" ref={mainRef} data-mobile-tab={mobileTab} style={{
         gridTemplateColumns: editorWidth
           ? `200px ${editorWidth}px 4px 1fr`
           : '200px 3fr 4px 2fr',
       }}>
-        <aside className="sidebar">
+        <aside className="sidebar mobile-panel-files">
           <FileTree
             files={files}
             activeIdx={activeIdx}
             diagnostics={fileDiagnostics}
             onToggle={handleToggle}
-            onSelect={handleSelect}
+            onSelect={(idx) => { handleSelect(idx); setMobileTab('editor'); }}
             onAdd={handleAddFile}
             onUpload={handleUpload}
             onRemove={handleRemove}
           />
         </aside>
 
-        <section className="editor-section">
+        <section className="editor-section mobile-panel-editor">
           <div className="editor-header">
             <input
               className="filename-input"
@@ -227,14 +243,14 @@ export function App() {
             />
           </div>
           <ResizeHandleH onResize={handleProblemsResize} />
-          <div className="problems-wrapper" style={{ height: problemsHeight }}>
-            <ProblemsPanel result={result} onNavigate={handleNavigate} />
+          <div className="problems-wrapper mobile-panel-problems" style={{ height: problemsHeight }}>
+            <ProblemsPanel result={result} onNavigate={(file, line) => { handleNavigate(file, line); setMobileTab('editor'); }} />
           </div>
         </section>
 
         <ResizeHandle onResize={handleResize} />
 
-        <section className="output-section">
+        <section className="output-section mobile-panel-output">
           <div className="compile-bar">
             <OptionsBar options={options} onChange={setOptions} />
           </div>
