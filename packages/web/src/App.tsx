@@ -7,6 +7,7 @@ import { Editor } from './components/Editor';
 import { OutputPanel } from './components/OutputPanel';
 import { OptionsBar } from './components/OptionsBar';
 import { ResizeHandle } from './components/ResizeHandle';
+import { ProblemsPanel } from './components/ProblemsPanel';
 import './App.css';
 
 export function App() {
@@ -61,6 +62,14 @@ export function App() {
     if (f.builtin) return;
     setFiles(prev => prev.filter((_, i) => i !== idx));
     setActiveIdx(prev => Math.min(prev, files.length - 2));
+  }, [files]);
+
+  const handleNavigate = useCallback((file: string, line: number) => {
+    const idx = files.findIndex(f => f.name === file);
+    if (idx >= 0) {
+      setActiveIdx(idx);
+      // TODO: scroll editor to line
+    }
   }, [files]);
 
   const handleRename = useCallback((idx: number, name: string) => {
@@ -167,6 +176,8 @@ export function App() {
           <OutputPanel result={result} />
         </section>
       </div>
+
+      <ProblemsPanel result={result} onNavigate={handleNavigate} />
     </div>
   );
 }

@@ -379,6 +379,88 @@ body {
   height: 100%;
 }
 
+/* Problems panel */
+.problems-panel {
+  border-top: 1px solid #1a1f29;
+  background: #0d1117;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.problems-header {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.7rem;
+  color: #8b949e;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid #1a1f29;
+  position: sticky;
+  top: 0;
+  background: #0d1117;
+}
+
+.problems-count {
+  background: #21262d;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 0.6rem;
+}
+
+.problems-list {
+  font-size: 0.7rem;
+}
+
+.problem-item {
+  padding: 0.2rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.problem-item:hover {
+  background: #111820;
+}
+
+.problem-icon {
+  font-weight: 700;
+  font-size: 0.6rem;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.problem-error .problem-icon {
+  background: #3d1117;
+  color: #f85149;
+}
+
+.problem-warning .problem-icon {
+  background: #2a1f00;
+  color: #f59e0b;
+}
+
+.problem-info .problem-icon {
+  background: #0c2d6b;
+  color: #58a6ff;
+}
+
+.problem-message {
+  flex: 1;
+  color: #b3b1ad;
+}
+
+.problem-location {
+  color: #4a5568;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
 .output-panel:not(.empty):not(.error) {
   display: flex;
   flex-direction: column;
