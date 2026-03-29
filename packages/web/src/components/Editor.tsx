@@ -13,6 +13,7 @@ interface Props {
 
 export interface EditorHandle {
   revealLine: (line: number) => void;
+  getMonaco: () => typeof import('monaco-editor') | null;
 }
 
 export const Editor = forwardRef<EditorHandle, Props>(({ value, onChange, filename }, ref) => {
@@ -26,6 +27,9 @@ export const Editor = forwardRef<EditorHandle, Props>(({ value, onChange, filena
       ed.revealLineInCenter(line);
       ed.setPosition({ lineNumber: line, column: 1 });
       ed.focus();
+    },
+    getMonaco() {
+      return monacoRef.current;
     },
   }));
 

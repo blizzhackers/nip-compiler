@@ -46,6 +46,38 @@ export function App() {
   // Persist state to localStorage
   useEffect(() => { saveState(files, options); }, [files, options]);
 
+  // Set cross-file warning markers from compile result
+  useEffect(() => {
+    const monaco = editorRef.current?.getMonaco();
+    if (!monaco || !result?.success) return;
+    // Group warnings by file
+    const byFile = new Map<string, typeof result.warnings>();
+    for (const w of result.warnings) {
+      const file = w.file ?? '';
+      if (!byFile.has(file)) byFile.set(file, []);
+      byFile.get(file)!.push(w);
+    }
+    // Set markers on all models
+    for (const model of monaco.editor.getModels()) {
+      const uri = model.uri.toString();
+      const fileName = files.find(f => uri.includes(f.name))?.name;
+      if (!fileName) continue;
+      const warnings = byFile.get(fileName) ?? [];
+      const markers = warnings.map(w => ({
+        severity: w.severity === 'warning'
+          ? monaco.MarkerSeverity.Warning
+          : monaco.MarkerSeverity.Info,
+        message: w.message,
+        startLineNumber: w.line ?? w.loc.line,
+        startColumn: 1,
+        endLineNumber: w.line ?? w.loc.line,
+        endColumn: model.getLineLength(w.line ?? w.loc.line) + 1,
+        source: 'nip-compiler',
+      }));
+      monaco.editor.setModelMarkers(model, 'nip-cross', markers);
+    }
+  }, [result, files]);
+
   const handleShare = useCallback(async () => {
     const url = await encodeShareUrl(files, options);
     await navigator.clipboard.writeText(url);
