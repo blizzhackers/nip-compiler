@@ -16,6 +16,10 @@ function findInfo(word: string): IMarkdownString | null {
   // ClassID
   if (lower in d2Aliases.classId) {
     const id = d2Aliases.classId[lower];
+    const fullName = reverseClassId.get(id);
+    if (fullName && fullName !== lower) {
+      return { value: `**Item code** \`${lower}\` → \`${fullName}\` — ClassID: \`${id}\`` };
+    }
     return { value: `**Item** \`${lower}\` — ClassID: \`${id}\`` };
   }
 
