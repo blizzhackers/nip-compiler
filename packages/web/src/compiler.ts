@@ -1,4 +1,5 @@
-import { Parser, Binder, Emitter, OutputFormat, d2Aliases } from '@blizzhackers/nip-compiler';
+import { Parser, Binder, Emitter, OutputFormat, d2Aliases, DiagnosticAnalyzer, Analyzer, Grouper } from '@blizzhackers/nip-compiler';
+import type { Diagnostic } from '@blizzhackers/nip-compiler';
 
 export interface CompileOptions {
   kolbot: boolean;
@@ -17,6 +18,7 @@ interface CompileSuccess {
   success: true;
   code: string;
   ruleCount: number;
+  warnings: Diagnostic[];
 }
 
 interface CompileError {
@@ -81,14 +83,25 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
       outputFormat: options.kolbot ? OutputFormat.CJS : OutputFormat.IIFE,
     });
 
+    // Cross-file semantic analysis
+    const analyzer = new Analyzer(d2Aliases);
+    const grouper = new Grouper(d2Aliases);
+    const allLines = parsed.flatMap(f =>
+      f.lines
+        .filter(l => l.property || l.stats)
+        .map((l, i) => analyzer.analyze(l, i, f.filename))
+    );
+    const plan = grouper.group(allLines);
+    const diagAnalyzer = new DiagnosticAnalyzer();
+    const warnings = diagAnalyzer.analyze(plan, allLines);
+
     const result = emitter.emitWithSourceMap(parsed, 'checkItem.js');
-    // Inline the source map as base64 data URL
     const mapBase64 = btoa(result.map);
     const code = result.code.replace(
       /\/\/# sourceMappingURL=.*$/m,
       `//# sourceMappingURL=data:application/json;base64,${mapBase64}`,
     );
-    return { success: true, code, ruleCount };
+    return { success: true, code, ruleCount, warnings };
   } catch (e: any) {
     return { success: false, error: e.message ?? String(e) };
   }
