@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { compile, type CompileOptions, type CompileResult } from './compiler';
 import { getDefaultFiles, type NipFileEntry } from './nip-files';
 import { saveState, loadState } from './persistence';
+import { encodeShareUrl, decodeShareUrl } from './share';
 import { getFileDiagnostics } from './use-diagnostics';
 import { FileTree } from './components/FileTree';
 import { Editor, type EditorHandle } from './components/Editor';
@@ -26,8 +27,29 @@ export function App() {
   });
   const [result, setResult] = useState<CompileResult | null>(null);
 
+  // Load from shared URL on mount
+  useEffect(() => {
+    decodeShareUrl().then(shared => {
+      if (!shared) return;
+      const defaults = getDefaultFiles();
+      const enabledSet = new Set(shared.enabled);
+      const restored = defaults.map(f => ({ ...f, enabled: enabledSet.has(f.name) }));
+      for (const cf of shared.customFiles) {
+        restored.push({ name: cf.name, content: cf.content, enabled: enabledSet.has(cf.name), builtin: false });
+      }
+      setFiles(restored);
+      setOptions(shared.options);
+      history.replaceState(null, '', location.pathname);
+    });
+  }, []);
+
   // Persist state to localStorage
   useEffect(() => { saveState(files, options); }, [files, options]);
+
+  const handleShare = useCallback(async () => {
+    const url = await encodeShareUrl(files, options);
+    await navigator.clipboard.writeText(url);
+  }, [files, options]);
 
   // Auto-compile on change (debounced)
   const compileTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -156,6 +178,7 @@ export function App() {
       <header className="header">
         <h1>NIP Compiler</h1>
         <span className="header-sub">Compile .nip pickit files to optimized JavaScript</span>
+        <button className="header-share" onClick={handleShare}>Share</button>
         <a className="header-gh" href="https://github.com/blizzhackers/nip-compiler" target="_blank" rel="noopener">GitHub</a>
       </header>
 
