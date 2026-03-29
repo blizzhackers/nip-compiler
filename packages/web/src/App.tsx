@@ -129,7 +129,7 @@ export function App() {
   const mainRef = useRef<HTMLDivElement>(null);
   const [editorWidth, setEditorWidth] = useState<number | null>(null);
   const [problemsHeight, setProblemsHeight] = useState(150);
-  const [dropping, setDropping] = useState(false);
+  const [dropInfo, setDropInfo] = useState<string | null>(null);
   const editorRef = useRef<EditorHandle>(null);
   const pendingLine = useRef<number | null>(null);
 
@@ -149,28 +149,34 @@ export function App() {
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setDropping(true);
+    const items = Array.from(e.dataTransfer.items).filter(i => i.kind === 'file');
+    const count = items.length;
+    setDropInfo(count > 0 ? `Drop ${count} file${count > 1 ? 's' : ''}` : 'Drop .nip files');
   }, []);
 
   const handleDragLeave = useCallback(() => {
-    setDropping(false);
+    setDropInfo(null);
   }, []);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
-    setDropping(false);
+    setDropInfo(null);
     const uploaded: { name: string; content: string }[] = [];
     for (const file of Array.from(e.dataTransfer.files)) {
       if (file.name.endsWith('.nip')) {
         uploaded.push({ name: file.name, content: await file.text() });
       }
     }
-    if (uploaded.length > 0) handleUpload(uploaded);
+    if (uploaded.length > 0) {
+      handleUpload(uploaded);
+      setActiveIdx(files.length); // select first dropped file
+    }
   }, [handleUpload]);
 
   return (
     <div
-      className={`app ${dropping ? 'dropping' : ''}`}
+      className={`app ${dropInfo ? 'dropping' : ''}`}
+      data-drop-info={dropInfo ?? ''}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
