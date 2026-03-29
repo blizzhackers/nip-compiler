@@ -12,12 +12,12 @@ export class DiagnosticAnalyzer {
   private detectDeadCode(plan: DispatchPlan, diagnostics: Diagnostic[]): void {
     const checkGroup = (qualityMap: Map<number | null, GroupedRule[]>) => {
       for (const [, rules] of qualityMap) {
-        let foundUnconditional = false;
+        let blocker: GroupedRule | null = null;
         for (const rule of rules) {
-          if (foundUnconditional) {
+          if (blocker) {
             diagnostics.push({
               severity: DiagnosticSeverity.Warning,
-              message: `Unreachable rule — previous rule in this group matches unconditionally`,
+              message: `Unreachable rule — blocked by unconditional rule at ${blocker.source}`,
               loc: rule.line.loc ?? { pos: 0, line: rule.line.lineNumber, col: 1 },
               file: rule.source.split('#')[0],
               line: rule.line.lineNumber,
@@ -25,7 +25,7 @@ export class DiagnosticAnalyzer {
             });
           }
           if (!rule.residualProperty && !rule.statExpr) {
-            foundUnconditional = true;
+            blocker = rule;
           }
         }
       }
@@ -35,12 +35,12 @@ export class DiagnosticAnalyzer {
     for (const [, qualityMap] of plan.typeGroups) checkGroup(qualityMap);
 
     // Catch-all dead code
-    let foundUnconditional = false;
+    let catchAllBlocker: GroupedRule | null = null;
     for (const rule of plan.catchAll) {
-      if (foundUnconditional) {
+      if (catchAllBlocker) {
         diagnostics.push({
           severity: DiagnosticSeverity.Warning,
-          message: `Unreachable catch-all rule — previous rule matches unconditionally`,
+          message: `Unreachable rule — blocked by unconditional rule at ${catchAllBlocker.source}`,
           loc: rule.line.loc ?? { pos: 0, line: rule.line.lineNumber, col: 1 },
           file: rule.source.split('#')[0],
           line: rule.line.lineNumber,
@@ -48,7 +48,7 @@ export class DiagnosticAnalyzer {
         });
       }
       if (!rule.residualProperty && !rule.statExpr) {
-        foundUnconditional = true;
+        catchAllBlocker = rule;
       }
     }
   }
