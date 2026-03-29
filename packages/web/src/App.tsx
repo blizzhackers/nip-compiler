@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { compile, type CompileOptions, type CompileResult } from './compiler';
 import { getDefaultFiles, type NipFileEntry } from './nip-files';
+import { getFileDiagnostics } from './use-diagnostics';
 import { FileTree } from './components/FileTree';
 import { Editor } from './components/Editor';
 import { OutputPanel } from './components/OutputPanel';
@@ -66,6 +67,11 @@ export function App() {
     setFiles(prev => prev.map((f, i) => i === idx ? { ...f, name } : f));
   }, []);
 
+  const fileDiagnostics = useMemo(() =>
+    files.map(f => getFileDiagnostics(f.content, f.name)),
+    [files],
+  );
+
   const active = files[activeIdx] ?? files[0];
   const mainRef = useRef<HTMLDivElement>(null);
   const [editorWidth, setEditorWidth] = useState<number | null>(null);
@@ -124,6 +130,7 @@ export function App() {
           <FileTree
             files={files}
             activeIdx={activeIdx}
+            diagnostics={fileDiagnostics}
             onToggle={handleToggle}
             onSelect={handleSelect}
             onAdd={handleAddFile}

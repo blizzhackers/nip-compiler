@@ -25,6 +25,21 @@ const binder = new Binder({
   },
 });
 
+export function getFileDiagnostics(content: string, filename: string): { errors: number; warnings: number } {
+  try {
+    const ast = parser.parseFile(content, filename);
+    const result = binder.bindFile(ast);
+    let errors = 0, warnings = 0;
+    for (const d of result.diagnostics) {
+      if (d.severity === 'error') errors++;
+      else if (d.severity === 'warning') warnings++;
+    }
+    return { errors, warnings };
+  } catch {
+    return { errors: 1, warnings: 0 };
+  }
+}
+
 export function useDiagnostics(
   monacoRef: React.MutableRefObject<typeof import('monaco-editor') | null>,
   editorRef: React.MutableRefObject<editor.IStandaloneCodeEditor | null>,

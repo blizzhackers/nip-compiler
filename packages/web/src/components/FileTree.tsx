@@ -4,6 +4,7 @@ import type { NipFileEntry } from '../nip-files';
 interface Props {
   files: NipFileEntry[];
   activeIdx: number;
+  diagnostics: { errors: number; warnings: number }[];
   onToggle: (idx: number) => void;
   onSelect: (idx: number) => void;
   onAdd: () => void;
@@ -11,7 +12,7 @@ interface Props {
   onRemove: (idx: number) => void;
 }
 
-export function FileTree({ files, activeIdx, onToggle, onSelect, onAdd, onUpload, onRemove }: Props) {
+export function FileTree({ files, activeIdx, diagnostics, onToggle, onSelect, onAdd, onUpload, onRemove }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -30,8 +31,9 @@ export function FileTree({ files, activeIdx, onToggle, onSelect, onAdd, onUpload
     <div className="file-tree">
       <div className="tree-section">
         <div className="tree-header">pickit/</div>
-        {builtins.map((f, i) => {
+        {builtins.map((f) => {
           const globalIdx = files.indexOf(f);
+          const diag = diagnostics[globalIdx];
           return (
             <div
               key={f.name}
@@ -44,6 +46,8 @@ export function FileTree({ files, activeIdx, onToggle, onSelect, onAdd, onUpload
                 onChange={e => { e.stopPropagation(); onToggle(globalIdx); }}
               />
               <span className="tree-name">{f.name}</span>
+              {diag?.errors > 0 && <span className="badge badge-error">{diag.errors}</span>}
+              {diag?.warnings > 0 && <span className="badge badge-warn">{diag.warnings}</span>}
             </div>
           );
         })}
@@ -54,6 +58,7 @@ export function FileTree({ files, activeIdx, onToggle, onSelect, onAdd, onUpload
           <div className="tree-header">custom/</div>
           {custom.map(f => {
             const globalIdx = files.indexOf(f);
+            const diag = diagnostics[globalIdx];
             return (
               <div
                 key={`custom-${globalIdx}`}
@@ -66,6 +71,8 @@ export function FileTree({ files, activeIdx, onToggle, onSelect, onAdd, onUpload
                   onChange={e => { e.stopPropagation(); onToggle(globalIdx); }}
                 />
                 <span className="tree-name">{f.name}</span>
+                {diag?.errors > 0 && <span className="badge badge-error">{diag.errors}</span>}
+                {diag?.warnings > 0 && <span className="badge badge-warn">{diag.warnings}</span>}
                 <button
                   className="tree-remove"
                   onClick={e => { e.stopPropagation(); onRemove(globalIdx); }}

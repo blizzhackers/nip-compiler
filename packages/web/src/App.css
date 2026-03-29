@@ -139,6 +139,24 @@ body {
   white-space: nowrap;
 }
 
+.badge {
+  font-size: 0.6rem;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.badge-error {
+  background: #3d1117;
+  color: #f85149;
+}
+
+.badge-warn {
+  background: #2a1f00;
+  color: #f59e0b;
+}
+
 .tree-remove {
   background: none;
   border: none;
