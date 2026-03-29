@@ -312,44 +312,53 @@ body {
   }
 
   .main {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: 1fr;
+    display: block !important;
+    position: relative;
     overflow: hidden;
   }
 
   .resize-handle,
   .resize-handle-h {
-    display: none;
+    display: none !important;
   }
 
-  .sidebar { display: none; }
-  .editor-section { display: none; }
-  .output-section { display: none; }
-  .resize-handle { display: none; }
+  .sidebar,
+  .editor-section,
+  .output-section {
+    position: absolute;
+    inset: 0;
+    display: none !important;
+  }
 
   .main[data-mobile-tab="files"] .sidebar {
-    display: block;
+    display: block !important;
+    overflow-y: auto;
   }
 
   .main[data-mobile-tab="editor"] .editor-section {
-    display: flex;
+    display: flex !important;
+    flex-direction: column;
   }
-  .main[data-mobile-tab="editor"] .problems-wrapper {
-    display: none;
+  .main[data-mobile-tab="editor"] .problems-wrapper,
+  .main[data-mobile-tab="editor"] .resize-handle-h {
+    display: none !important;
   }
 
   .main[data-mobile-tab="output"] .output-section {
-    display: flex;
+    display: flex !important;
+    flex-direction: column;
   }
 
   .main[data-mobile-tab="problems"] .editor-section {
-    display: flex;
+    display: flex !important;
+    flex-direction: column;
   }
   .main[data-mobile-tab="problems"] .editor-wrapper,
   .main[data-mobile-tab="problems"] .editor-header {
-    display: none;
+    display: none !important;
   }
   .main[data-mobile-tab="problems"] .problems-wrapper {
+    display: block !important;
     flex: 1;
     height: auto !important;
   }
