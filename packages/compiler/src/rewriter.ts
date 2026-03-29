@@ -22,7 +22,7 @@ for (const [alias, full] of Object.entries(PROPERTY_ALIASES)) {
 export interface Rewrite {
   kind: string;
   description: string;
-  /** Apply the rewrite to the original line text, returns new line text */
+  /** Apply the rewrite, returns new text (may contain newlines for multi-line expansion) */
   apply(): string;
 }
 
@@ -159,6 +159,12 @@ export function getAvailableRewrites(
     }
   }
 
+  // Range expansion: [name] >= X && [name] <= Y → individual lines
+  const rangeExpansion = detectRangeExpansion(node, aliases);
+  if (rangeExpansion) {
+    rewrites.push(rangeExpansion);
+  }
+
   return rewrites;
 }
 
@@ -288,6 +294,120 @@ function findKeywordInComparison(expr: ExprNode, tokenIdx: number): string | nul
     return findKeywordInComparison(expr.operand, tokenIdx);
   }
   return null;
+}
+
+function detectRangeExpansion(node: NipLineNode, aliases: AliasMapSet): Rewrite | null {
+  if (!node.property) return null;
+  const expr = node.property.expr;
+  if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return null;
+
+  // Look for [kw] >= X && [kw] <= Y (or [kw] <= Y && [kw] >= X)
+  const extractBound = (e: ExprNode): { keyword: string; op: string; value: number; name: string } | null => {
+    if (e.kind !== NodeKind.BinaryExpr) return null;
+    if (e.op !== '>=' && e.op !== '<=' && e.op !== '>' && e.op !== '<') return null;
+    if (e.left.kind !== NodeKind.KeywordExpr) return null;
+    const kw = e.left.name;
+    if (kw !== 'name' && kw !== 'classid') return null;
+    const map = getAliasMap(aliases, kw);
+    if (!map) return null;
+    if (e.right.kind === NodeKind.NumberLiteral) {
+      return { keyword: kw, op: e.op, value: e.right.value, name: String(e.right.value) };
+    }
+    if (e.right.kind === NodeKind.Identifier && e.right.name in map) {
+      return { keyword: kw, op: e.op, value: map[e.right.name], name: e.right.name };
+    }
+    return null;
+  };
+
+  // Flatten && and find bounds
+  const conjuncts: ExprNode[] = [];
+  flattenAnd(expr, conjuncts);
+
+  let low: number | null = null;
+  let high: number | null = null;
+  let keyword: string | null = null;
+  const otherConjuncts: ExprNode[] = [];
+
+  for (const c of conjuncts) {
+    const b = extractBound(c);
+    if (b) {
+      keyword = b.keyword;
+      if (b.op === '>=' || b.op === '>') low = b.op === '>' ? b.value + 1 : b.value;
+      else if (b.op === '<=' || b.op === '<') high = b.op === '<' ? b.value - 1 : b.value;
+    } else {
+      otherConjuncts.push(c);
+    }
+  }
+
+  if (low === null || high === null || keyword === null || low > high) return null;
+  if (high - low > 100) return null;
+
+  // Resolve items in range
+  const map = getAliasMap(aliases, keyword)!;
+  const reverseMap = buildReverseMap(map);
+  const items: string[] = [];
+  for (let id = low; id <= high; id++) {
+    const names = reverseMap.get(id);
+    if (names) {
+      items.push(names.reduce((a, b) => a.length >= b.length ? a : b));
+    }
+  }
+
+  if (items.length === 0) return null;
+
+  // Build the suffix (stat section, meta section, comment)
+  const parser = new Parser();
+  const tokens = parser.lastTokens; // won't have tokens here, use original line
+  // Reconstruct suffix from the original sections
+  let suffix = '';
+  if (node.stats) {
+    suffix += ' # ' + printExprCanonical(node.stats.expr);
+  }
+  if (node.meta) {
+    suffix += ' # ';
+    for (const entry of node.meta.entries) {
+      suffix += `[${entry.key}] == ${printExprCanonical(entry.expr)}`;
+    }
+  }
+  if (node.comment) {
+    suffix += ` // ${node.comment}`;
+  }
+
+  // Build other property conditions as prefix
+  let otherPrefix = '';
+  if (otherConjuncts.length > 0) {
+    otherPrefix = otherConjuncts.map(c => printExprCanonical(c)).join(' && ') + ' && ';
+  }
+
+  return {
+    kind: 'expand-range',
+    description: `Expand range to ${items.length} individual rules`,
+    apply() {
+      return items.map(item =>
+        `${otherPrefix}[${keyword}] == ${item}${suffix}`
+      ).join('\n');
+    },
+  };
+}
+
+function flattenAnd(expr: ExprNode, out: ExprNode[]): void {
+  if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
+    flattenAnd(expr.left, out);
+    flattenAnd(expr.right, out);
+  } else {
+    out.push(expr);
+  }
+}
+
+function printExprCanonical(node: ExprNode): string {
+  switch (node.kind) {
+    case NodeKind.KeywordExpr: return `[${node.name}]`;
+    case NodeKind.NumberLiteral: return String(node.value);
+    case NodeKind.Identifier: return node.name;
+    case NodeKind.UnaryExpr: return `!${printExprCanonical(node.operand)}`;
+    case NodeKind.BinaryExpr:
+      return `${printExprCanonical(node.left)} ${node.op} ${printExprCanonical(node.right)}`;
+  }
 }
 
 // Cache
