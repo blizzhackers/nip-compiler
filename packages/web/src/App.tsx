@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { compile, type CompileOptions, type CompileResult } from './compiler';
 import { getDefaultFiles, type NipFileEntry } from './nip-files';
+import { saveState, loadState } from './persistence';
 import { getFileDiagnostics } from './use-diagnostics';
 import { FileTree } from './components/FileTree';
 import { Editor, type EditorHandle } from './components/Editor';
@@ -11,15 +12,22 @@ import { ResizeHandleH } from './components/ResizeHandleH';
 import { ProblemsPanel } from './components/ProblemsPanel';
 import './App.css';
 
+const defaultOptions: CompileOptions = { kolbot: true, prettyPrint: true, minify: false };
+
 export function App() {
-  const [files, setFiles] = useState<NipFileEntry[]>(getDefaultFiles);
+  const [files, setFiles] = useState<NipFileEntry[]>(() => {
+    const saved = loadState();
+    return saved ? saved.files : getDefaultFiles();
+  });
   const [activeIdx, setActiveIdx] = useState(0);
-  const [options, setOptions] = useState<CompileOptions>({
-    kolbot: true,
-    prettyPrint: true,
-    minify: false,
+  const [options, setOptions] = useState<CompileOptions>(() => {
+    const saved = loadState();
+    return saved ? saved.options : defaultOptions;
   });
   const [result, setResult] = useState<CompileResult | null>(null);
+
+  // Persist state to localStorage
+  useEffect(() => { saveState(files, options); }, [files, options]);
 
   // Auto-compile on change (debounced)
   const compileTimer = useRef<ReturnType<typeof setTimeout>>();
