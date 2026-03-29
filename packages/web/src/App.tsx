@@ -3,7 +3,7 @@ import { compile, type CompileOptions, type CompileResult } from './compiler';
 import { getDefaultFiles, type NipFileEntry } from './nip-files';
 import { getFileDiagnostics } from './use-diagnostics';
 import { FileTree } from './components/FileTree';
-import { Editor } from './components/Editor';
+import { Editor, type EditorHandle } from './components/Editor';
 import { OutputPanel } from './components/OutputPanel';
 import { OptionsBar } from './components/OptionsBar';
 import { ResizeHandle } from './components/ResizeHandle';
@@ -69,9 +69,22 @@ export function App() {
     const idx = files.findIndex(f => f.name === file);
     if (idx >= 0) {
       setActiveIdx(idx);
-      // TODO: scroll editor to line
+      // If same file, reveal immediately. If switching, queue it.
+      if (idx === activeIdx) {
+        editorRef.current?.revealLine(line);
+      } else {
+        pendingLine.current = line;
+      }
     }
-  }, [files]);
+  }, [files, activeIdx]);
+
+  useEffect(() => {
+    if (pendingLine.current !== null) {
+      const line = pendingLine.current;
+      pendingLine.current = null;
+      setTimeout(() => editorRef.current?.revealLine(line), 50);
+    }
+  }, [activeIdx]);
 
   const handleRename = useCallback((idx: number, name: string) => {
     setFiles(prev => prev.map((f, i) => i === idx ? { ...f, name } : f));
@@ -87,6 +100,8 @@ export function App() {
   const [editorWidth, setEditorWidth] = useState<number | null>(null);
   const [problemsHeight, setProblemsHeight] = useState(150);
   const [dropping, setDropping] = useState(false);
+  const editorRef = useRef<EditorHandle>(null);
+  const pendingLine = useRef<number | null>(null);
 
   const handleProblemsResize = useCallback((deltaY: number) => {
     setProblemsHeight(prev => Math.max(50, Math.min(500, prev - deltaY)));
@@ -168,6 +183,7 @@ export function App() {
           </div>
           <div className="editor-wrapper">
             <Editor
+              ref={editorRef}
               value={active?.content ?? ''}
               onChange={handleContentChange}
               filename={active?.name ?? 'untitled.nip'}

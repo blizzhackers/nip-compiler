@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import MonacoEditor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { NIP_LANGUAGE_ID } from '../nip-language';
@@ -11,9 +11,23 @@ interface Props {
   filename: string;
 }
 
-export function Editor({ value, onChange, filename }: Props) {
+export interface EditorHandle {
+  revealLine: (line: number) => void;
+}
+
+export const Editor = forwardRef<EditorHandle, Props>(({ value, onChange, filename }, ref) => {
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    revealLine(line: number) {
+      const ed = editorRef.current;
+      if (!ed) return;
+      ed.revealLineInCenter(line);
+      ed.setPosition({ lineNumber: line, column: 1 });
+      ed.focus();
+    },
+  }));
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     setupMonaco(monaco);
@@ -58,4 +72,4 @@ export function Editor({ value, onChange, filename }: Props) {
       }}
     />
   );
-}
+});
