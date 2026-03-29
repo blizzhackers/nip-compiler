@@ -77,6 +77,13 @@ export class Grouper {
       if (this.isDispatchDisjunction(expr, kind, values)) return null;
     }
 
+    // Strip range comparisons (>= / <= / > / <) on dispatched keywords
+    if (expr.kind === NodeKind.BinaryExpr
+      && (expr.op === '>=' || expr.op === '<=' || expr.op === '>' || expr.op === '<')
+      && this.isRangeBoundOnDispatchKeyword(expr, kind)) {
+      return null;
+    }
+
     return expr;
   }
 
@@ -107,6 +114,14 @@ export class Grouper {
     return branches.every(b =>
       b.kind === NodeKind.BinaryExpr && b.op === '==' && this.isDispatchComparison(b, kind, values)
     );
+  }
+
+  private isRangeBoundOnDispatchKeyword(expr: BinaryExprNode, kind: DispatchKind): boolean {
+    if (expr.left.kind !== NodeKind.KeywordExpr) return false;
+    const kw = expr.left.name;
+    if (kind === DispatchKind.Classid && (kw === 'name' || kw === 'classid')) return true;
+    if (kind === DispatchKind.Type && kw === 'type') return true;
+    return false;
   }
 
   private exprMatchesValues(expr: ExprNode, values: number[], keyword: string): boolean {

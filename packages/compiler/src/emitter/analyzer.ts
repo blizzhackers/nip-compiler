@@ -68,7 +68,6 @@ export class Analyzer {
           if (cmp.kind === DispatchKind.Classid) classidValues = cmp.values;
           else if (cmp.kind === DispatchKind.Type) typeValues = cmp.values;
         }
-        // Also check for quality
         const q = this.extractQuality(conjunct);
         if (q !== null) quality = q;
       } else if (conjunct.kind === NodeKind.BinaryExpr && conjunct.op === '||') {
@@ -83,8 +82,54 @@ export class Analyzer {
       }
     }
 
+    // Try range extraction if no exact dispatch found
+    if (!classidValues && !typeValues) {
+      const range = this.extractRange(conjuncts);
+      if (range) {
+        if (range.kind === DispatchKind.Classid) classidValues = range.values;
+        else if (range.kind === DispatchKind.Type) typeValues = range.values;
+      }
+    }
+
     if (classidValues) return { kind: DispatchKind.Classid, values: classidValues, quality };
     if (typeValues) return { kind: DispatchKind.Type, values: typeValues, quality };
+    return null;
+  }
+
+  private extractRange(conjuncts: ExprNode[]): DispatchKey | null {
+    // Find pairs of [keyword] >= X and [keyword] <= Y
+    const bounds = new Map<string, { low?: number; high?: number; kind: DispatchKind }>();
+
+    for (const c of conjuncts) {
+      if (c.kind !== NodeKind.BinaryExpr) continue;
+      if (c.left.kind !== NodeKind.KeywordExpr) continue;
+      const kw = c.left.name;
+      const dispatchKind = keywordToDispatchKind(kw);
+      if (!dispatchKind) continue;
+
+      const value = this.resolveValue(c.right, kw);
+      if (value === null) continue;
+
+      if (!bounds.has(kw)) bounds.set(kw, { kind: dispatchKind });
+      const b = bounds.get(kw)!;
+
+      if (c.op === '>=' || c.op === '>') {
+        b.low = c.op === '>' ? value + 1 : value;
+      } else if (c.op === '<=' || c.op === '<') {
+        b.high = c.op === '<' ? value - 1 : value;
+      }
+    }
+
+    for (const [, b] of bounds) {
+      if (b.low === undefined || b.high === undefined) continue;
+      if (b.low > b.high) continue;
+      // Cap range size to prevent explosion on huge ranges
+      if (b.high - b.low > 100) continue;
+      const values: number[] = [];
+      for (let id = b.low; id <= b.high; id++) values.push(id);
+      if (values.length > 0) return { kind: b.kind, values, quality: null };
+    }
+
     return null;
   }
 
