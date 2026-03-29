@@ -7,6 +7,7 @@ import { Editor } from './components/Editor';
 import { OutputPanel } from './components/OutputPanel';
 import { OptionsBar } from './components/OptionsBar';
 import { ResizeHandle } from './components/ResizeHandle';
+import { ResizeHandleH } from './components/ResizeHandleH';
 import { ProblemsPanel } from './components/ProblemsPanel';
 import './App.css';
 
@@ -84,7 +85,12 @@ export function App() {
   const active = files[activeIdx] ?? files[0];
   const mainRef = useRef<HTMLDivElement>(null);
   const [editorWidth, setEditorWidth] = useState<number | null>(null);
+  const [problemsHeight, setProblemsHeight] = useState(150);
   const [dropping, setDropping] = useState(false);
+
+  const handleProblemsResize = useCallback((deltaY: number) => {
+    setProblemsHeight(prev => Math.max(50, Math.min(500, prev - deltaY)));
+  }, []);
 
   const handleResize = useCallback((deltaX: number) => {
     setEditorWidth(prev => {
@@ -165,7 +171,10 @@ export function App() {
             onChange={handleContentChange}
             filename={active?.name ?? 'untitled.nip'}
           />
-          <ProblemsPanel result={result} onNavigate={handleNavigate} />
+          <ResizeHandleH onResize={handleProblemsResize} />
+          <div style={{ height: problemsHeight, flexShrink: 0 }}>
+            <ProblemsPanel result={result} onNavigate={handleNavigate} />
+          </div>
         </section>
 
         <ResizeHandle onResize={handleResize} />

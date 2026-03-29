@@ -82,6 +82,18 @@ body {
   background: #7ee787;
 }
 
+.resize-handle-h {
+  height: 4px;
+  cursor: row-resize;
+  background: #1a1f29;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.resize-handle-h:hover {
+  background: #7ee787;
+}
+
 /* Sidebar / File Tree */
 .sidebar {
   background: #0d1117;
@@ -381,10 +393,9 @@ body {
 
 /* Problems panel */
 .problems-panel {
-  border-top: 1px solid #1a1f29;
   background: #0d1117;
-  max-height: 200px;
   overflow: auto;
+  height: 100%;
 }
 
 .problems-header {
