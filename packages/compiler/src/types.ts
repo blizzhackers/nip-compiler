@@ -70,6 +70,10 @@ export type UnaryOp = '!';
 export interface BaseNode {
   kind: NodeKind;
   loc: SourceLocation;
+  /** Direct tokens of this node (operator, brackets, etc.) — NOT child node tokens */
+  tokens?: Token[];
+  /** Index range into the full token array for exact text reconstruction */
+  tokenRange?: [number, number];
 }
 
 export interface NipFileNode extends BaseNode {

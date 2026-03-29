@@ -202,7 +202,7 @@ describe('Lexer', () => {
       const tokens = new Lexer('[name] == ring // Perfect Raven').tokenize();
       const comment = tokens.find(t => t.type === TokenType.Comment);
       assert.ok(comment);
-      assert.strictEqual(comment.value, 'Perfect Raven');
+      assert.strictEqual(comment.value, ' Perfect Raven');
     });
 
     it('tokenizes comment with empty content', () => {
@@ -215,13 +215,13 @@ describe('Lexer', () => {
     it('tokenizes comment-only input', () => {
       const tokens = new Lexer('// just a comment').tokenize();
       assert.strictEqual(tokens[0].type, TokenType.Comment);
-      assert.strictEqual(tokens[0].value, 'just a comment');
+      assert.strictEqual(tokens[0].value, ' just a comment');
       assert.strictEqual(tokens[1].type, TokenType.EOF);
     });
 
     it('preserves apostrophes in comments', () => {
       const tokens = new Lexer("// gladiator's bane").tokenize();
-      assert.strictEqual(tokens[0].value, "gladiator's bane");
+      assert.strictEqual(tokens[0].value, " gladiator's bane");
     });
 
     it('skips block comments as trivia', () => {

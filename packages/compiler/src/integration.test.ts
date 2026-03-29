@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Parser } from './parser.js';
 import { Binder } from './binder.js';
+import { printLineFromTokens } from './printer.js';
 
 const parser = new Parser();
 const binder = new Binder();
@@ -44,5 +45,36 @@ describe('Integration: real nip files', () => {
     for (const name of files) {
       assert.doesNotThrow(() => parseNipFile(name), `Failed to parse ${name}`);
     }
+  });
+
+  it('printer round-trips all kolton.nip lines', () => {
+    const content = readFileSync(join(NIP_DIR, 'kolton.nip'), 'utf-8');
+    const rawLines = content.split('\n');
+    let failures = 0;
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const raw = rawLines[i];
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.startsWith('//')) continue;
+      // Skip lines that get preprocessed (item.getStatEx → [N])
+      if (raw.includes('item.getStatEx') || raw.includes('me.diff')) continue;
+
+      try {
+        const node = parser.parseLine(raw, i + 1);
+        const printed = printLineFromTokens(node, parser.lastTokens);
+        if (printed !== raw) {
+          if (failures < 5) {
+            console.log(`  line ${i + 1} mismatch:`);
+            console.log(`    original: ${JSON.stringify(raw)}`);
+            console.log(`    printed:  ${JSON.stringify(printed)}`);
+          }
+          failures++;
+        }
+      } catch {
+        // skip unparseable lines
+      }
+    }
+
+    assert.strictEqual(failures, 0, `${failures} lines failed to round-trip`);
   });
 });

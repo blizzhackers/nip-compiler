@@ -249,7 +249,7 @@ export class Lexer {
     this.pendingTrivia = '';
     this.tokens.push({
       type: TokenType.Comment,
-      value: this.input.slice(contentStart, this.pos).trim(),
+      value: this.input.slice(contentStart, this.pos),
       pos: start,
       line: this.line,
       col: startCol,

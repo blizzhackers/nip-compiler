@@ -10,11 +10,14 @@ import {
 export class Parser {
   private tokens: Token[] = [];
   private current = 0;
+  /** Tokens from the most recent parseLine call */
+  lastTokens: Token[] = [];
 
   parseLine(input: string, lineNumber = 1): NipLineNode {
     const preprocessed = Parser.preprocess(input);
     const lexer = new Lexer(preprocessed);
     this.tokens = lexer.tokenize();
+    this.lastTokens = this.tokens;
     this.current = 0;
 
     return this.parseNipLine(lineNumber);
@@ -58,11 +61,14 @@ export class Parser {
 
   private parseNipLine(lineNumber: number): NipLineNode {
     const startLoc = this.loc();
+    const lineTokens: Token[] = [];
     let comment: string | null = null;
 
     // Check for comment-only line
     if (this.check(TokenType.Comment)) {
-      comment = this.advance().value;
+      const ct = this.advance();
+      lineTokens.push(ct);
+      comment = ct.value.trim();
       return {
         kind: NodeKind.NipLine,
         property: null,
@@ -71,6 +77,7 @@ export class Parser {
         comment,
         lineNumber,
         loc: startLoc,
+        tokens: lineTokens,
       };
     }
 
@@ -82,7 +89,8 @@ export class Parser {
 
     // Parse stat section (after first #)
     let stats: SectionNode | null = null;
-    if (this.match(TokenType.Hash)) {
+    if (this.check(TokenType.Hash)) {
+      lineTokens.push(this.advance()); // #
       if (!this.check(TokenType.Hash) && !this.check(TokenType.EOF) && !this.check(TokenType.Comment)) {
         stats = this.parseSection(NodeKind.StatSection);
       }
@@ -90,13 +98,16 @@ export class Parser {
 
     // Parse meta section (after second #)
     let meta: MetaSectionNode | null = null;
-    if (this.match(TokenType.Hash)) {
+    if (this.check(TokenType.Hash)) {
+      lineTokens.push(this.advance()); // #
       meta = this.parseMetaSection();
     }
 
     // Trailing comment
     if (this.check(TokenType.Comment)) {
-      comment = this.advance().value;
+      const ct = this.advance();
+      lineTokens.push(ct);
+      comment = ct.value.trim();
     }
 
     return {
@@ -107,6 +118,7 @@ export class Parser {
       comment,
       lineNumber,
       loc: startLoc,
+      tokens: lineTokens,
     };
   }
 
@@ -210,6 +222,7 @@ export class Parser {
 
   private parseUnary(): ExprNode {
     if (this.check(TokenType.Not)) {
+      const startIdx = this.current;
       const op = this.advance();
       const operand = this.parseUnary();
       return {
@@ -217,6 +230,8 @@ export class Parser {
         op: '!',
         operand,
         loc: { pos: op.pos, line: op.line, col: op.col },
+        tokens: [op],
+        tokenRange: [startIdx, operand.tokenRange?.[1] ?? this.current],
       } satisfies UnaryExprNode;
     }
     return this.parsePrimary();
@@ -225,9 +240,12 @@ export class Parser {
   private parsePrimary(): ExprNode {
     // Parenthesized expression
     if (this.check(TokenType.LeftParen)) {
-      this.advance();
+      const startIdx = this.current;
+      this.advance(); // (
       const expr = this.parseExpr();
       this.expect(TokenType.RightParen);
+      // Widen the token range to include parens
+      expr.tokenRange = [startIdx, this.current];
       return expr;
     }
 
@@ -246,21 +264,27 @@ export class Parser {
 
     // Number literal
     if (this.check(TokenType.Number)) {
+      const startIdx = this.current;
       const tok = this.advance();
       return {
         kind: NodeKind.NumberLiteral,
         value: Number(tok.value),
         loc: { pos: tok.pos, line: tok.line, col: tok.col },
+        tokens: [tok],
+        tokenRange: [startIdx, this.current],
       } satisfies NumberLiteralNode;
     }
 
     // Bare identifier (e.g., named values like "unique", "ring")
     if (this.check(TokenType.Identifier)) {
+      const startIdx = this.current;
       const tok = this.advance();
       return {
         kind: NodeKind.Identifier,
         name: tok.value.toLowerCase(),
         loc: { pos: tok.pos, line: tok.line, col: tok.col },
+        tokens: [tok],
+        tokenRange: [startIdx, this.current],
       };
     }
 
@@ -327,32 +351,41 @@ export class Parser {
   }
 
   private parseKeyword(): KeywordExprNode {
+    const startIdx = this.current;
     const open = this.expect(TokenType.LeftBracket);
-    // Allow [identifier], [number], [number,number], and [] (always-false toggle)
+    const nodeTokens = [open];
     let name: string;
     if (this.check(TokenType.RightBracket)) {
-      // [] = disabled rule, emits as always-false
-      this.advance();
-      return { kind: NodeKind.KeywordExpr, name: '', loc: { pos: open.pos, line: open.line, col: open.col } };
+      const close = this.advance();
+      nodeTokens.push(close);
+      return { kind: NodeKind.KeywordExpr, name: '', loc: { pos: open.pos, line: open.line, col: open.col }, tokens: nodeTokens, tokenRange: [startIdx, this.current] };
     } else if (this.check(TokenType.Identifier)) {
-      name = this.advance().value.toLowerCase();
+      const id = this.advance();
+      nodeTokens.push(id);
+      name = id.value.toLowerCase();
     } else if (this.check(TokenType.Number)) {
-      name = this.advance().value;
-      // Handle [N,M] for getStatEx(N,M)
+      const num = this.advance();
+      nodeTokens.push(num);
+      name = num.value;
       if (this.check(TokenType.Comma)) {
-        this.advance();
+        const comma = this.advance();
+        nodeTokens.push(comma);
         const param = this.expect(TokenType.Number);
+        nodeTokens.push(param);
         name = `${name},${param.value}`;
       }
     } else {
       const tok = this.peek();
       throw new ParseError(`Expected keyword or stat ID but got '${tok.value || tok.type}'`, tok.line, tok.col, tok.pos);
     }
-    this.expect(TokenType.RightBracket);
+    const close = this.expect(TokenType.RightBracket);
+    nodeTokens.push(close);
     return {
       kind: NodeKind.KeywordExpr,
       name,
       loc: { pos: open.pos, line: open.line, col: open.col },
+      tokens: nodeTokens,
+      tokenRange: [startIdx, this.current],
     };
   }
 
@@ -363,6 +396,8 @@ export class Parser {
       left,
       right,
       loc: { pos: left.loc.pos, line: left.loc.line, col: left.loc.col },
+      tokens: [opToken],
+      tokenRange: [left.tokenRange?.[0] ?? 0, right.tokenRange?.[1] ?? this.current],
     };
   }
 
