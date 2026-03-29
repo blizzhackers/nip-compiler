@@ -284,6 +284,9 @@ body {
     background: #0d1117;
     border-bottom: 1px solid #1a1f29;
     overflow-x: auto;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
   }
 
   .mobile-tab {
@@ -311,6 +314,7 @@ body {
   .main {
     grid-template-columns: 1fr !important;
     grid-template-rows: 1fr;
+    overflow: hidden;
   }
 
   .resize-handle,
