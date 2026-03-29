@@ -60,6 +60,7 @@ function toSuggestions(
     range,
     detail,
     sortText: sortFn?.(label) ?? label,
+    filterText: label,
   }));
 }
 

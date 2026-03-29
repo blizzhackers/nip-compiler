@@ -4,9 +4,10 @@ import type { CompileResult } from '../compiler';
 
 interface Props {
   result: CompileResult | null;
+  onNavigate?: (file: string, line: number) => void;
 }
 
-export function OutputPanel({ result }: Props) {
+export function OutputPanel({ result, onNavigate }: Props) {
   const handleCopy = useCallback(() => {
     if (result?.success) {
       navigator.clipboard.writeText(result.code);
@@ -33,10 +34,25 @@ export function OutputPanel({ result }: Props) {
   }
 
   if (!result.success) {
+    const errorLines = result.error.split('\n');
     return (
       <div className="output-panel error">
         <h3>Compilation Error</h3>
-        <pre>{result.error}</pre>
+        <div className="error-list">
+          {errorLines.map((line, i) => {
+            const match = line.match(/^(\S+\.nip):(\d+):\s*(.*)$/);
+            if (match && onNavigate) {
+              const [, file, lineNum, msg] = match;
+              return (
+                <div key={i} className="error-item" onClick={() => onNavigate(file, parseInt(lineNum))}>
+                  <span className="error-loc">{file}:{lineNum}</span>
+                  <span className="error-msg">{msg}</span>
+                </div>
+              );
+            }
+            return <div key={i} className="error-item">{line}</div>;
+          })}
+        </div>
       </div>
     );
   }

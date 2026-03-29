@@ -297,15 +297,16 @@ body {
 
   .mobile-tab {
     flex: 1;
-    padding: 0.5rem;
+    padding: 0.6rem 0.5rem;
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
     color: #6b7280;
     font-family: inherit;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     cursor: pointer;
     white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .mobile-tab.active {
@@ -317,10 +318,24 @@ body {
     display: none;
   }
 
+  .header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .header h1 {
+    font-size: 0.9rem;
+  }
+
+  .tree-item {
+    padding: 0.35rem 0.75rem 0.35rem 1rem;
+  }
+
   .main {
     display: block !important;
     position: relative;
     overflow: hidden;
+    flex: 1;
+    min-height: 0;
   }
 
   .resize-handle,
@@ -460,6 +475,33 @@ body {
   justify-content: center;
   color: #2a2f3a;
   font-size: 0.8rem;
+}
+
+.error-list {
+  padding: 0.25rem 0;
+}
+
+.error-item {
+  padding: 0.2rem 0.75rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.error-item:hover {
+  background: #1a0a0a;
+}
+
+.error-loc {
+  color: #f85149;
+  white-space: nowrap;
+  text-decoration: underline;
+}
+
+.error-msg {
+  color: #b3b1ad;
 }
 
 .output-panel.error h3 {

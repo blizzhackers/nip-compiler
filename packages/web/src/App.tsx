@@ -286,7 +286,7 @@ export function App() {
           <div className="compile-bar">
             <OptionsBar options={options} onChange={setOptions} />
           </div>
-          <OutputPanel result={result} />
+          <OutputPanel result={result} onNavigate={handleNavigate} />
         </section>
       </div>
     </div>
