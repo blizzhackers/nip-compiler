@@ -166,13 +166,15 @@ export function App() {
               {active?.content.split('\n').length ?? 0} lines
             </span>
           </div>
-          <Editor
-            value={active?.content ?? ''}
-            onChange={handleContentChange}
-            filename={active?.name ?? 'untitled.nip'}
-          />
+          <div className="editor-wrapper">
+            <Editor
+              value={active?.content ?? ''}
+              onChange={handleContentChange}
+              filename={active?.name ?? 'untitled.nip'}
+            />
+          </div>
           <ResizeHandleH onResize={handleProblemsResize} />
-          <div style={{ height: problemsHeight, flexShrink: 0 }}>
+          <div className="problems-wrapper" style={{ height: problemsHeight }}>
             <ProblemsPanel result={result} onNavigate={handleNavigate} />
           </div>
         </section>
