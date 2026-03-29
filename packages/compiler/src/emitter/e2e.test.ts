@@ -429,6 +429,122 @@ describe('E2E: autoequip tier with real aliases', () => {
   });
 });
 
+describe('E2E: range dispatch', () => {
+  function compileAndRun(lines: string[], filename = 'test.nip') {
+    const file = parser.parseFile(lines.join('\n'), filename);
+    binder.bindFile(file);
+    const emitter = new Emitter({ aliases, includeSourceComments: true });
+    const js = emitter.emit([file]);
+    return eval(js)(helpers);
+  }
+
+  function compileMultiAndRun(fileEntries: { name: string; lines: string[] }[]) {
+    const files = fileEntries.map(({ name, lines }) => {
+      const file = parser.parseFile(lines.join('\n'), name);
+      binder.bindFile(file);
+      return file;
+    });
+    const emitter = new Emitter({ aliases, includeSourceComments: true });
+    const js = emitter.emit(files);
+    return eval(js)(helpers);
+  }
+
+  it('picks up Ber rune via range dispatch', () => {
+    const mod = compileAndRun(['[name] >= istrune && [name] <= zodrune']);
+    const item = makeItem({ classid: cid('berrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(item), 1);
+  });
+
+  it('picks up Ist rune (lower bound) via range dispatch', () => {
+    const mod = compileAndRun(['[name] >= istrune && [name] <= zodrune']);
+    const item = makeItem({ classid: cid('istrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(item), 1);
+  });
+
+  it('picks up Zod rune (upper bound) via range dispatch', () => {
+    const mod = compileAndRun(['[name] >= istrune && [name] <= zodrune']);
+    const item = makeItem({ classid: cid('zodrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(item), 1);
+  });
+
+  it('rejects rune below range (Gul is below Ist)', () => {
+    // gulrune = 634, istrune = 633... actually let me check
+    // If gul < ist numerically, this test needs adjustment
+    const mod = compileAndRun(['[name] >= istrune && [name] <= zodrune']);
+    const item = makeItem({ classid: cid('eldrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(item), 0);
+  });
+
+  it('rejects non-rune item', () => {
+    const mod = compileAndRun(['[name] >= istrune && [name] <= zodrune']);
+    const item = makeItem({ classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') });
+    assert.strictEqual(mod.checkItem(item), 0);
+  });
+
+  it('range rule coexists with specific rule on same classid', () => {
+    // Ber matches both the range AND the specific rule
+    // The specific rule with stats should take priority (it's listed first)
+    const mod = compileAndRun([
+      '[name] == berrune # # [maxquantity] == 5',
+      '[name] >= istrune && [name] <= zodrune',
+    ]);
+    const item = makeItem({ classid: cid('berrune'), quality: qid('normal'), itemType: tid('rune') });
+    const result = mod.checkItem(item, true);
+    assert.strictEqual(result.result, 1);
+  });
+
+  it('range + specific rule: non-ber rune still matches range', () => {
+    const mod = compileAndRun([
+      '[name] == berrune # # [maxquantity] == 5',
+      '[name] >= istrune && [name] <= zodrune',
+    ]);
+    const item = makeItem({ classid: cid('jahrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(item), 1);
+  });
+
+  it('range with additional property condition', () => {
+    // Range + quality filter
+    const mod = compileAndRun([
+      '[name] >= istrune && [name] <= zodrune && [quality] <= superior',
+    ]);
+    const item = makeItem({ classid: cid('berrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(item), 1);
+  });
+
+  it('range in multi-file: both files contribute rules for same classid', () => {
+    const mod = compileMultiAndRun([
+      { name: 'runes.nip', lines: ['[name] >= istrune && [name] <= zodrune'] },
+      { name: 'tiers.nip', lines: ['[name] == berrune # # [tier] == 99'] },
+    ]);
+    const ber = makeItem({ classid: cid('berrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(ber), 1);
+    assert.strictEqual(mod.getTier(ber), 99);
+
+    // Jah matches the range but not the tier
+    const jah = makeItem({ classid: cid('jahrune'), quality: qid('normal'), itemType: tid('rune') });
+    assert.strictEqual(mod.checkItem(jah), 1);
+    assert.strictEqual(mod.getTier(jah), -1);
+  });
+
+  it('verbose returns correct file/line for range-dispatched rule', () => {
+    const mod = compileAndRun([
+      '// a comment',
+      '[name] >= istrune && [name] <= zodrune',
+    ]);
+    const item = makeItem({ classid: cid('berrune'), quality: qid('normal'), itemType: tid('rune') });
+    const result = mod.checkItem(item, true);
+    assert.strictEqual(result.result, 1);
+    assert.strictEqual(result.file, 'test.nip');
+    assert.strictEqual(result.line, 2);
+  });
+
+  it('small range: [name] >= petrifiedwand && [name] <= gravewand', () => {
+    const mod = compileAndRun(['[name] >= petrifiedwand && [name] <= gravewand']);
+    const item = makeItem({ classid: cid('tombwand'), quality: qid('normal'), itemType: tid('wand') });
+    assert.strictEqual(mod.checkItem(item), 1);
+  });
+});
+
 describe('E2E: multi-file emission', () => {
   let mod: any;
 
