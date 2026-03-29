@@ -14,7 +14,16 @@ const knownPropertyValues = new Map<string, Set<string>>([
   ['color', new Set(Object.keys(d2Aliases.color))],
   ['class', new Set(Object.keys(d2Aliases.class))],
 ]);
-const binder = new Binder({ knownStats, knownPropertyValues, classIdAliases: d2Aliases.classId });
+const binder = new Binder({
+  knownStats,
+  knownPropertyValues,
+  propertyAliases: {
+    name: d2Aliases.classId,
+    classid: d2Aliases.classId,
+    type: d2Aliases.type,
+    quality: d2Aliases.quality,
+  },
+});
 
 export function useDiagnostics(
   monacoRef: React.MutableRefObject<typeof import('monaco-editor') | null>,
@@ -51,7 +60,7 @@ export function useDiagnostics(
             startLineNumber: diag.loc.line,
             startColumn: diag.loc.col,
             endLineNumber: diag.loc.line,
-            endColumn: diag.loc.col + 10,
+            endColumn: diag.loc.end ?? diag.loc.col + 10,
           });
         }
       } catch (e: any) {

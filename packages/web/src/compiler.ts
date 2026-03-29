@@ -37,7 +37,16 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
       ['color', new Set(Object.keys(d2Aliases.color))],
       ['class', new Set(Object.keys(d2Aliases.class))],
     ]);
-    const binder = new Binder({ knownStats, knownPropertyValues, classIdAliases: d2Aliases.classId });
+    const binder = new Binder({
+      knownStats,
+      knownPropertyValues,
+      propertyAliases: {
+        name: d2Aliases.classId,
+        classid: d2Aliases.classId,
+        type: d2Aliases.type,
+        quality: d2Aliases.quality,
+      },
+    });
 
     let ruleCount = 0;
     const errors: string[] = [];

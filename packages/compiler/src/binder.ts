@@ -1,7 +1,7 @@
 import {
   AstNode, Diagnostic, DiagnosticSeverity, DiagnosticTag, ExprNode, KeywordExprNode,
   MetaEntryNode, MetaSectionNode, NipFileNode, NipLineNode, NodeKind,
-  SectionNode, IdentifierNode, BinaryExprNode,
+  SectionNode, IdentifierNode, BinaryExprNode, SourceLocation,
 } from './types.js';
 
 const PROPERTY_ALIASES: Record<string, string> = {
@@ -41,23 +41,42 @@ export class Binder {
   private diagnostics: Diagnostic[] = [];
   private knownStats: Set<string> | null = null;
   private knownPropertyValues: Map<string, Set<string>> | null = null;
-  private classIdByValue: Map<number, string[]> | null = null;
-  private classIdByName: Record<string, number> | null = null;
+  // For range resolution: keyword → { byName: name→id, byValue: id→names[] }
+  private rangeAliases: Map<string, {
+    byName: Record<string, number>;
+    byValue: Map<number, string[]>;
+  }> | null = null;
 
   constructor(options?: {
     knownStats?: Set<string>;
     knownPropertyValues?: Map<string, Set<string>>;
+    propertyAliases?: Record<string, Record<string, number>>;
     classIdAliases?: Record<string, number>;
   }) {
     if (options?.knownStats) this.knownStats = options.knownStats;
     if (options?.knownPropertyValues) this.knownPropertyValues = options.knownPropertyValues;
+
+    // Build range alias maps — support both legacy classIdAliases and new propertyAliases
+    const aliasEntries: [string, Record<string, number>][] = [];
+    if (options?.propertyAliases) {
+      for (const [kw, map] of Object.entries(options.propertyAliases)) {
+        aliasEntries.push([kw, map]);
+      }
+    }
     if (options?.classIdAliases) {
-      this.classIdByName = options.classIdAliases;
-      this.classIdByValue = new Map();
-      for (const [name, id] of Object.entries(options.classIdAliases)) {
-        const list = this.classIdByValue.get(id);
-        if (list) list.push(name);
-        else this.classIdByValue.set(id, [name]);
+      aliasEntries.push(['name', options.classIdAliases]);
+      aliasEntries.push(['classid', options.classIdAliases]);
+    }
+    if (aliasEntries.length > 0) {
+      this.rangeAliases = new Map();
+      for (const [kw, map] of aliasEntries) {
+        const byValue = new Map<number, string[]>();
+        for (const [name, id] of Object.entries(map)) {
+          const list = byValue.get(id);
+          if (list) list.push(name);
+          else byValue.set(id, [name]);
+        }
+        this.rangeAliases.set(kw, { byName: map, byValue });
       }
     }
   }
@@ -119,21 +138,21 @@ export class Binder {
     }
   }
 
-  private bindPropertyExpr(expr: ExprNode): void {
+  private bindPropertyExpr(expr: ExprNode, insideAnd = false): void {
     switch (expr.kind) {
       case NodeKind.KeywordExpr:
         this.resolvePropertyKeyword(expr);
         break;
       case NodeKind.BinaryExpr:
         if (isComparison(expr.op)) {
-          this.bindPropertyComparison(expr);
+          this.bindPropertyComparison(expr, insideAnd);
         } else if (expr.op === '&&') {
-          this.bindPropertyExpr(expr.left);
-          this.bindPropertyExpr(expr.right);
+          this.bindPropertyExpr(expr.left, true);
+          this.bindPropertyExpr(expr.right, true);
           this.detectRange(expr);
         } else {
-          this.bindPropertyExpr(expr.left);
-          this.bindPropertyExpr(expr.right);
+          this.bindPropertyExpr(expr.left, insideAnd);
+          this.bindPropertyExpr(expr.right, insideAnd);
         }
         break;
       case NodeKind.UnaryExpr:
@@ -145,13 +164,63 @@ export class Binder {
     }
   }
 
-  private bindPropertyComparison(expr: BinaryExprNode): void {
+  private bindPropertyComparison(expr: BinaryExprNode, insideAnd = false): void {
     this.bindPropertyExpr(expr.left);
-    // Only validate values for == (exact match). >= / <= use aliases as numeric bounds
     if (expr.op === '==' && expr.left.kind === NodeKind.KeywordExpr && expr.right.kind === NodeKind.Identifier) {
       this.validatePropertyValue(expr.left, expr.right);
     } else {
       this.bindPropertyExpr(expr.right);
+      if (!insideAnd) this.detectSingleBoundRange(expr);
+    }
+  }
+
+  private detectSingleBoundRange(expr: BinaryExprNode): void {
+    if (!this.rangeAliases) return;
+    if (expr.op !== '<=' && expr.op !== '<' && expr.op !== '>=' && expr.op !== '>') return;
+    if (expr.left.kind !== NodeKind.KeywordExpr) return;
+    const kw = expr.left.name;
+    const aliases = this.rangeAliases.get(kw);
+    if (!aliases) return;
+
+    let boundValue: number | null = null;
+    if (expr.right.kind === NodeKind.NumberLiteral) boundValue = expr.right.value;
+    else if (expr.right.kind === NodeKind.Identifier && expr.right.name in aliases.byName) {
+      boundValue = aliases.byName[expr.right.name];
+    }
+    if (boundValue === null) return;
+
+    // Only show for <= and < (upper bound from 0) and >= and > (lower bound to max)
+    // Find the actual range of known values
+    const allIds = [...aliases.byValue.keys()].sort((a, b) => a - b);
+    if (allIds.length === 0) return;
+    const minId = allIds[0];
+    const maxId = allIds[allIds.length - 1];
+
+    let low: number, high: number;
+    if (expr.op === '<=' || expr.op === '<') {
+      low = minId;
+      high = expr.op === '<' ? boundValue - 1 : boundValue;
+    } else {
+      low = expr.op === '>' ? boundValue + 1 : boundValue;
+      high = maxId;
+    }
+
+    // Don't show for trivial ranges (everything or just one item)
+    const matches: string[] = [];
+    for (let id = low; id <= high; id++) {
+      const names = aliases.byValue.get(id);
+      if (names) {
+        const best = names.reduce((a, b) => a.length >= b.length ? a : b);
+        matches.push(best);
+      }
+    }
+
+    if (matches.length > 1 && matches.length < aliases.byValue.size) {
+      const label = kw === 'quality' ? 'qualities' : 'items';
+      const list = matches.length <= 15
+        ? matches.join(', ')
+        : matches.slice(0, 12).join(', ') + `, ... (${matches.length} total)`;
+      this.info({ loc: this.exprSpan(expr) }, `Matches ${matches.length} ${label}: ${list}`, 'range');
     }
   }
 
@@ -207,6 +276,25 @@ export class Binder {
     // tier/merctier can be arbitrary expressions — no validation needed
   }
 
+  private exprSpan(expr: ExprNode): SourceLocation {
+    const right = this.rightmostNode(expr);
+    const endCol = right.loc.col + this.nodeTextLength(right);
+    return { ...expr.loc, end: endCol };
+  }
+
+  private rightmostNode(expr: ExprNode): ExprNode {
+    if (expr.kind === NodeKind.BinaryExpr) return this.rightmostNode(expr.right);
+    if (expr.kind === NodeKind.UnaryExpr) return this.rightmostNode(expr.operand);
+    return expr;
+  }
+
+  private nodeTextLength(expr: ExprNode): number {
+    if (expr.kind === NodeKind.Identifier) return expr.name.length;
+    if (expr.kind === NodeKind.NumberLiteral) return String(expr.value).length;
+    if (expr.kind === NodeKind.KeywordExpr) return expr.name.length + 2;
+    return 1;
+  }
+
   private error(node: { loc: { pos: number; line: number; col: number } }, message: string): void {
     this.diagnostics.push({
       severity: DiagnosticSeverity.Error,
@@ -233,19 +321,19 @@ export class Binder {
   }
 
   private detectRange(expr: BinaryExprNode): void {
-    if (!this.classIdByName || !this.classIdByValue) return;
+    if (!this.rangeAliases) return;
     if (expr.op !== '&&') return;
 
-    // Look for [name/classid] >= X && [name/classid] <= Y (or reversed)
     const extractBound = (e: ExprNode): { keyword: string; op: string; value: number } | null => {
       if (e.kind !== NodeKind.BinaryExpr) return null;
       if (e.op !== '>=' && e.op !== '<=' && e.op !== '>' && e.op !== '<') return null;
       if (e.left.kind !== NodeKind.KeywordExpr) return null;
       const kw = e.left.name;
-      if (kw !== 'name' && kw !== 'classid') return null;
+      const aliases = this.rangeAliases!.get(kw);
+      if (!aliases) return null;
       if (e.right.kind === NodeKind.NumberLiteral) return { keyword: kw, op: e.op, value: e.right.value };
-      if (e.right.kind === NodeKind.Identifier && e.right.name in this.classIdByName!) {
-        return { keyword: kw, op: e.op, value: this.classIdByName![e.right.name] };
+      if (e.right.kind === NodeKind.Identifier && e.right.name in aliases.byName) {
+        return { keyword: kw, op: e.op, value: aliases.byName[e.right.name] };
       }
       return null;
     };
@@ -255,7 +343,6 @@ export class Binder {
     if (!left || !right) return;
     if (left.keyword !== right.keyword) return;
 
-    // Determine range [low, high]
     let low: number, high: number;
     if ((left.op === '>=' || left.op === '>') && (right.op === '<=' || right.op === '<')) {
       low = left.op === '>' ? left.value + 1 : left.value;
@@ -269,22 +356,22 @@ export class Binder {
 
     if (low > high) return;
 
-    // Collect matching item names
+    const aliases = this.rangeAliases!.get(left.keyword)!;
     const matches: string[] = [];
     for (let id = low; id <= high; id++) {
-      const names = this.classIdByValue!.get(id);
+      const names = aliases.byValue.get(id);
       if (names) {
-        // Prefer the longest name (human-readable)
         const best = names.reduce((a, b) => a.length >= b.length ? a : b);
         matches.push(best);
       }
     }
 
     if (matches.length > 0) {
+      const label = left.keyword === 'quality' ? 'qualities' : 'items';
       const list = matches.length <= 15
         ? matches.join(', ')
         : matches.slice(0, 12).join(', ') + `, ... (${matches.length} total)`;
-      this.info(expr, `Matches ${matches.length} items: ${list}`, 'range');
+      this.info({ loc: this.exprSpan(expr) }, `Matches ${matches.length} ${label}: ${list}`, 'range');
     }
   }
 }

@@ -425,5 +425,29 @@ describe('Binder', () => {
       assert.strictEqual(info.length, 1);
       assert.ok(info[0].message.includes('berrune'));
     });
+
+    it('resolves [quality] <= rare to matching qualities', () => {
+      const input = '[quality] <= rare';
+      const file = parser.parseFile(input);
+      const binder = new Binder({ propertyAliases: { quality: d2Aliases.quality } });
+      const { diagnostics } = binder.bindFile(file);
+      const info = diagnostics.filter(d => d.tag === 'range');
+      assert.strictEqual(info.length, 1);
+      assert.ok(info[0].message.includes('qualities'));
+      assert.ok(info[0].message.includes('normal'));
+      assert.ok(info[0].message.includes('rare'));
+    });
+
+    it('resolves [quality] <= superior', () => {
+      const input = '[quality] <= superior';
+      const file = parser.parseFile(input);
+      const binder = new Binder({ propertyAliases: { quality: d2Aliases.quality } });
+      const { diagnostics } = binder.bindFile(file);
+      const info = diagnostics.filter(d => d.tag === 'range');
+      assert.strictEqual(info.length, 1);
+      assert.ok(info[0].message.includes('lowquality'));
+      assert.ok(info[0].message.includes('normal'));
+      assert.ok(info[0].message.includes('superior'));
+    });
   });
 });
