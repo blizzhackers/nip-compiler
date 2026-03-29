@@ -165,6 +165,7 @@ export function App() {
             onChange={handleContentChange}
             filename={active?.name ?? 'untitled.nip'}
           />
+          <ProblemsPanel result={result} onNavigate={handleNavigate} />
         </section>
 
         <ResizeHandle onResize={handleResize} />
@@ -176,8 +177,6 @@ export function App() {
           <OutputPanel result={result} />
         </section>
       </div>
-
-      <ProblemsPanel result={result} onNavigate={handleNavigate} />
     </div>
   );
 }
