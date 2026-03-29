@@ -229,7 +229,9 @@ export class Binder {
     expr.name = resolved;
 
     if (!PROPERTY_KEYWORDS.has(resolved)) {
-      this.error(expr, `Unknown property keyword '${expr.name}'`);
+      const suggestion = findClosestMatch(expr.name, PROPERTY_KEYWORDS);
+      const hint = suggestion ? `. Did you mean '${suggestion}'?` : '';
+      this.error(expr, `Unknown property keyword '${expr.name}'${hint}`);
     }
   }
 
@@ -237,7 +239,9 @@ export class Binder {
     if (!this.knownPropertyValues) return;
     const values = this.knownPropertyValues.get(keyword.name);
     if (values && !values.has(value.name)) {
-      this.error(value, `Unknown ${keyword.name} value '${value.name}'`);
+      const suggestion = findClosestMatch(value.name, values);
+      const hint = suggestion ? `. Did you mean '${suggestion}'?` : '';
+      this.error(value, `Unknown ${keyword.name} value '${value.name}'${hint}`);
     }
   }
 
@@ -261,7 +265,11 @@ export class Binder {
 
   private resolveStatKeyword(expr: KeywordExprNode): void {
     if (this.knownStats && !this.knownStats.has(expr.name)) {
-      this.error(expr, `Unknown stat '${expr.name}'`);
+      // Skip numeric stat IDs (they're valid even if not in the alias table)
+      if (/^\d/.test(expr.name)) return;
+      const suggestion = findClosestMatch(expr.name, this.knownStats);
+      const hint = suggestion ? `. Did you mean '${suggestion}'?` : '';
+      this.error(expr, `Unknown stat '${expr.name}'${hint}`);
     }
   }
 
@@ -378,4 +386,53 @@ export class Binder {
 
 function isComparison(op: string): boolean {
   return op === '==' || op === '!=' || op === '>' || op === '>=' || op === '<' || op === '<=';
+}
+
+function findClosestMatch(input: string, candidates: Set<string>): string | null {
+  // TypeScript-style threshold: proportional to name length
+  const maxDistance = Math.min(2, Math.floor(input.length * 0.34));
+
+  // Prefer prefix match first
+  const prefix = [...candidates].filter(c => c.startsWith(input));
+  if (prefix.length === 1) return prefix[0];
+  if (prefix.length > 1) {
+    return prefix.reduce((a, b) => a.length <= b.length ? a : b);
+  }
+
+  // Also try substring match (e.g. "ber" → "berrune")
+  const substring = [...candidates].filter(c => c.includes(input) && input.length >= 3);
+  if (substring.length === 1) return substring[0];
+
+  // Fall back to Levenshtein distance
+  let best: string | null = null;
+  let bestDist = maxDistance + 1;
+  for (const candidate of candidates) {
+    if (Math.abs(candidate.length - input.length) > maxDistance) continue;
+    const dist = levenshtein(input, candidate);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const d: number[] = new Array(n + 1);
+  for (let j = 0; j <= n; j++) d[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = d[0];
+    d[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = d[j];
+      d[j] = a[i - 1] === b[j - 1]
+        ? prev
+        : 1 + Math.min(prev, d[j], d[j - 1]);
+      prev = temp;
+    }
+  }
+  return d[n];
 }
