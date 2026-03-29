@@ -318,48 +318,36 @@ body {
     display: none;
   }
 
-  .sidebar,
-  .editor-section,
-  .output-section {
-    display: none;
-    grid-column: 1;
-    grid-row: 1;
+  .sidebar { display: none; }
+  .editor-section { display: none; }
+  .output-section { display: none; }
+  .resize-handle { display: none; }
+
+  .main[data-mobile-tab="files"] .sidebar {
+    display: block;
   }
 
-  .main[data-mobile-tab="files"] .mobile-panel-files {
+  .main[data-mobile-tab="editor"] .editor-section {
     display: flex;
-    flex-direction: column;
   }
-
-  .main[data-mobile-tab="editor"] .mobile-panel-editor {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .main[data-mobile-tab="output"] .mobile-panel-output {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .main[data-mobile-tab="problems"] .mobile-panel-problems {
-    display: flex !important;
-    flex-direction: column;
-    height: 100% !important;
-  }
-
-  /* On mobile, problems panel is its own tab, not nested in editor */
   .main[data-mobile-tab="editor"] .problems-wrapper {
     display: none;
   }
 
-  .main[data-mobile-tab="problems"] .editor-section {
+  .main[data-mobile-tab="output"] .output-section {
     display: flex;
-    flex-direction: column;
   }
 
+  .main[data-mobile-tab="problems"] .editor-section {
+    display: flex;
+  }
   .main[data-mobile-tab="problems"] .editor-wrapper,
   .main[data-mobile-tab="problems"] .editor-header {
     display: none;
+  }
+  .main[data-mobile-tab="problems"] .problems-wrapper {
+    flex: 1;
+    height: auto !important;
   }
 
   .compile-bar {
