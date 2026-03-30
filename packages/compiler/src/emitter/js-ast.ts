@@ -136,7 +136,11 @@ export function ident(name: string): ESTree.Identifier {
   return { type: 'Identifier', name };
 }
 
-export function literal(value: number | string | boolean | null): ESTree.Literal {
+export function literal(value: number | string | boolean | null): ESTree.Literal | ESTree.UnaryExpression {
+  // ESTree spec: negative numbers must be UnaryExpression('-', Literal(abs))
+  if (typeof value === 'number' && value < 0) {
+    return { type: 'UnaryExpression', operator: '-', argument: { type: 'Literal', value: -value }, prefix: true };
+  }
   return { type: 'Literal', value };
 }
 

@@ -11,12 +11,15 @@ interface RuleBlock {
   vars: string[];
   body: string[];
 }
+import type * as ESTree from 'estree';
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGen } from './codegen.js';
 import { AliasMapSet, BASE_STATS, DispatchPlan, DispatchStrategy, EmitterConfig, GroupedRule, OutputFormat } from './types.js';
 import { formatJs, minifyJs } from './formatter.js';
 import { SourceMapBuilder } from './sourcemap.js';
+import { EmitterAST } from './emitter-ast.js';
+import * as escodegen from 'escodegen';
 
 export class Emitter {
   private analyzer: Analyzer;
@@ -36,6 +39,38 @@ export class Emitter {
     this.codegen = new CodeGen(config.aliases);
     this.comments = config.includeSourceComments ?? true;
     this.outputFormat = config.outputFormat ?? OutputFormat.IIFE;
+  }
+
+  /**
+   * Emit an ESTree AST from the NIP files.
+   * Use generate() to convert to JS code + source map.
+   */
+  emitAST(files: NipFileNode[]): ESTree.Program {
+    const astEmitter = new EmitterAST(this.config);
+    return astEmitter.emitAST(files);
+  }
+
+  /**
+   * Generate JS code (+ optional source map) from an ESTree AST.
+   */
+  generate(
+    ast: ESTree.Program,
+    options?: { sourceMap?: boolean; pretty?: boolean },
+  ): { code: string; map?: string } {
+    const genOptions: Record<string, any> = {
+      comment: true,
+      format: {
+        indent: { style: options?.pretty !== false ? '  ' : '' },
+        compact: options?.pretty === false,
+      },
+    };
+    if (options?.sourceMap) {
+      genOptions.sourceMap = true;
+      genOptions.sourceMapWithCode = true;
+      const result = escodegen.generate(ast, genOptions) as any;
+      return { code: result.code, map: result.map.toString() };
+    }
+    return { code: escodegen.generate(ast, genOptions) as string };
   }
 
   private getFileId(filename: string): number {

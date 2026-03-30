@@ -437,3 +437,99 @@ describe('Emitter', () => {
     assert.ok(js.includes('case 520'));
   });
 });
+
+describe('Emitter ESTree path', () => {
+  const helpers = {
+    checkQuantityOwned: () => 0,
+    me: { charlvl: 90, ladder: 1, playertype: 0, gametype: 1, realm: 'europe' },
+    getBaseStat: () => 0,
+  };
+
+  it('emitAST + generate produces valid JS', () => {
+    const file = parser.parseFile('[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25', 'test.nip');
+    binder.bindFile(file);
+    const em = new Emitter({ aliases: testAliases, includeSourceComments: true });
+    const ast = em.emitAST([file]);
+    const { code } = em.generate(ast);
+    assert.ok(code.includes('function checkItem'));
+    assert.ok(code.includes('function getTier'));
+    const factory = eval(code);
+    assert.strictEqual(typeof factory, 'function');
+  });
+
+  it('ESTree checkItem returns correct results', () => {
+    const file = parser.parseFile('[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25', 'test.nip');
+    binder.bindFile(file);
+    const em = new Emitter({ aliases: testAliases, includeSourceComments: true });
+    const ast = em.emitAST([file]);
+    const { code } = em.generate(ast);
+    const factory = eval(code);
+    const mod = factory(helpers);
+
+    const matchItem = {
+      classid: 85, quality: 7, itemType: 10,
+      getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
+      getStatEx: (id: number) => id === 9 ? 25 : 0,
+    };
+    assert.strictEqual(mod.checkItem(matchItem), 1);
+
+    const noMatch = {
+      classid: 520, quality: 7, itemType: 12,
+      getFlag: () => 0x10, getStatEx: () => 0,
+    };
+    assert.strictEqual(mod.checkItem(noMatch), 0);
+  });
+
+  it('ESTree verbose returns file and line', () => {
+    const file = parser.parseFile('[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25', 'test.nip');
+    binder.bindFile(file);
+    const em = new Emitter({ aliases: testAliases, includeSourceComments: true });
+    const ast = em.emitAST([file]);
+    const { code } = em.generate(ast);
+    const factory = eval(code);
+    const mod = factory(helpers);
+
+    const item = {
+      classid: 85, quality: 7, itemType: 10,
+      getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
+      getStatEx: (id: number) => id === 9 ? 25 : 0,
+    };
+    const result = mod.checkItem(item, true);
+    assert.strictEqual(result.result, 1);
+    assert.strictEqual(result.file, 'test.nip');
+    assert.strictEqual(result.line, 1);
+  });
+
+  it('ESTree getTier works', () => {
+    const input = [
+      '[name] == ring && [quality] == unique # # [tier] == 5',
+      '[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25 # [tier] == 99',
+    ].join('\n');
+    const file = parser.parseFile(input, 'tier.nip');
+    binder.bindFile(file);
+    const em = new Emitter({ aliases: testAliases, includeSourceComments: true });
+    const ast = em.emitAST([file]);
+    const { code } = em.generate(ast);
+    const factory = eval(code);
+    const mod = factory(helpers);
+
+    const item = {
+      classid: 85, quality: 7, itemType: 10,
+      getFlag: () => 0x10,
+      getStatEx: (id: number) => id === 9 ? 25 : 0,
+    };
+    assert.strictEqual(mod.getTier(item), 99);
+  });
+
+  it('ESTree generate with source map', () => {
+    const file = parser.parseFile('[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25', 'test.nip');
+    binder.bindFile(file);
+    const em = new Emitter({ aliases: testAliases, includeSourceComments: true });
+    const ast = em.emitAST([file]);
+    const result = em.generate(ast, { sourceMap: true });
+    assert.ok(result.code.length > 0);
+    assert.ok(result.map);
+    const map = JSON.parse(result.map!);
+    assert.strictEqual(map.version, 3);
+  });
+});
