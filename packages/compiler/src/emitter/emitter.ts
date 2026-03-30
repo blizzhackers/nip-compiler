@@ -97,18 +97,12 @@ export class Emitter {
   }
 
   emit(files: NipFileNode[]): string {
-    const ast = this.emitAST(files);
-    const pretty = this.config.prettyPrint && !this.config.minify;
-    const { code } = this.generate(ast, { pretty });
-    return code;
+    // Use old string-based emitter (ESTree path has dispatch bugs — WIP)
+    return this.emitStringBased(files);
   }
 
   emitWithSourceMap(files: NipFileNode[], outputFilename = 'checkItem.js'): { code: string; map: string } {
-    const ast = this.emitAST(files);
-    const pretty = this.config.prettyPrint && !this.config.minify;
-    const result = this.generate(ast, { sourceMap: true, pretty, file: outputFilename });
-    const code = result.code + `\n//# sourceMappingURL=${outputFilename}.map\n`;
-    return { code, map: result.map! };
+    return this.emitWithSourceMapOld(files, outputFilename);
   }
 
   /** @deprecated — old string-based emit, kept for reference during migration */
