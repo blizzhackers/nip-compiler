@@ -55,7 +55,7 @@ export class Emitter {
    */
   generate(
     ast: ESTree.Program,
-    options?: { sourceMap?: boolean; pretty?: boolean },
+    options?: { sourceMap?: boolean; pretty?: boolean; file?: string },
   ): { code: string; map?: string } {
     const genOptions: Record<string, any> = {
       comment: true,
@@ -68,7 +68,9 @@ export class Emitter {
       genOptions.sourceMap = true;
       genOptions.sourceMapWithCode = true;
       const result = escodegen.generate(ast, genOptions) as any;
-      return { code: result.code, map: result.map.toString() };
+      const mapObj = JSON.parse(result.map.toString());
+      if (options.file) mapObj.file = options.file;
+      return { code: result.code, map: JSON.stringify(mapObj) };
     }
     return { code: escodegen.generate(ast, genOptions) as string };
   }
@@ -95,6 +97,22 @@ export class Emitter {
   }
 
   emit(files: NipFileNode[]): string {
+    const ast = this.emitAST(files);
+    const pretty = this.config.prettyPrint && !this.config.minify;
+    const { code } = this.generate(ast, { pretty });
+    return code;
+  }
+
+  emitWithSourceMap(files: NipFileNode[], outputFilename = 'checkItem.js'): { code: string; map: string } {
+    const ast = this.emitAST(files);
+    const pretty = this.config.prettyPrint && !this.config.minify;
+    const result = this.generate(ast, { sourceMap: true, pretty, file: outputFilename });
+    const code = result.code + `\n//# sourceMappingURL=${outputFilename}.map\n`;
+    return { code, map: result.map! };
+  }
+
+  /** @deprecated — old string-based emit, kept for reference during migration */
+  private emitStringBased(files: NipFileNode[]): string {
     this.sourceTable = [];
     this.sourceIdMap.clear();
     this.fileTable = [];
@@ -169,8 +187,9 @@ export class Emitter {
     return this.config.prettyPrint ? formatJs(raw) : raw;
   }
 
-  emitWithSourceMap(files: NipFileNode[], outputFilename = 'checkItem.js'): { code: string; map: string } {
-    const code = this.emit(files);
+  /** @deprecated old string-based source map, kept for reference */
+  private emitWithSourceMapOld(files: NipFileNode[], outputFilename = 'checkItem.js'): { code: string; map: string } {
+    const code = this.emitStringBased(files);
     const smb = new SourceMapBuilder();
 
     // Register all source files and their content

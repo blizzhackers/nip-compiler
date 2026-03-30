@@ -233,7 +233,7 @@ export class EmitterAST {
         cases.push(switchCase(literal(group.keys[i]), []));
       }
       cases.push(switchCase(literal(group.keys[group.keys.length - 1]),
-        [...group.stmts, breakStmt()]));
+        [block([...group.stmts, breakStmt()])]));
     }
 
     body.push(switchStmt(disc, cases));
@@ -254,7 +254,7 @@ export class EmitterAST {
         const caseBody = isTier
           ? this.buildTierGroup(rules)
           : this.buildHoistedGroup(rules, mqSources);
-        cases.push(switchCase(literal(quality!), [...caseBody, breakStmt()]));
+        cases.push(switchCase(literal(quality!), [block([...caseBody, breakStmt()])]));
       }
       stmts.push(switchStmt(ident('_q'), cases));
     }
@@ -367,16 +367,23 @@ export class EmitterAST {
     const sourceComment = `${rule.source}${rule.line.comment ? ' — ' + rule.line.comment.trim() : ''}`;
 
     const wrapComment = (s: ESTree.Statement): ESTree.Statement => {
+      // Attach NIP source location for source maps
+      s.loc = {
+        source: nipLoc.source ?? null,
+        start: { line: nipLoc.line, column: 0 },
+        end: { line: nipLoc.line, column: 0 },
+      };
       return this.comments ? withLeadingComment(s, ` ${sourceComment}`) : s;
     };
 
     if (conditions.length > 0 && hasStats) {
       const propCond = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
       if (hasMq) {
+        const mqEntry = memberComputed(ident('_mq'), literal(mqIdx));
         const mqCheck = bin('<',
           call(ident('checkQuantityOwned'), [
-            memberComputed(memberComputed(ident('_mq'), literal(mqIdx)), ident('prop' as any)),
-            memberComputed(memberComputed(ident('_mq'), literal(mqIdx)), ident('stat' as any)),
+            member(mqEntry, 'prop'),
+            member(mqEntry, 'stat'),
           ]),
           literal(rule.maxQuantity!));
         stmts.push(wrapComment(ifStmt(propCond, [ifStmt(statExpr!, [ifStmt(mqCheck, [matchStmt])])])));
@@ -470,7 +477,7 @@ export class EmitterAST {
       const cases: ESTree.SwitchCase[] = [];
       for (const [key, qualityMap] of filtered) {
         const stmts = this.buildQualityDispatch(qualityMap, [], true);
-        cases.push(switchCase(literal(key), [...stmts, breakStmt()]));
+        cases.push(switchCase(literal(key), [block([...stmts, breakStmt()])]));
       }
       body.push(switchStmt(disc, cases));
     };
