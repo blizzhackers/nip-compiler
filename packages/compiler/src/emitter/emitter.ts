@@ -55,13 +55,16 @@ export class Emitter {
    */
   generate(
     ast: ESTree.Program,
-    options?: { sourceMap?: boolean; pretty?: boolean; file?: string },
+    options?: { sourceMap?: boolean; pretty?: boolean; minify?: boolean; file?: string },
   ): { code: string; map?: string } {
+    const compact = options?.minify || options?.pretty === false;
     const genOptions: Record<string, any> = {
-      comment: true,
+      comment: !options?.minify,
       format: {
-        indent: { style: options?.pretty !== false ? '  ' : '' },
-        compact: options?.pretty === false,
+        indent: { style: compact ? '' : '  ' },
+        compact,
+        newline: options?.minify ? '' : '\n',
+        semicolons: true,
       },
     };
     if (options?.sourceMap) {
@@ -97,12 +100,23 @@ export class Emitter {
   }
 
   emit(files: NipFileNode[]): string {
-    // Use old string-based emitter (ESTree path has dispatch bugs — WIP)
-    return this.emitStringBased(files);
+    const ast = this.emitAST(files);
+    const { code } = this.generate(ast, {
+      pretty: this.config.prettyPrint,
+      minify: this.config.minify,
+    });
+    return code;
   }
 
   emitWithSourceMap(files: NipFileNode[], outputFilename = 'checkItem.js'): { code: string; map: string } {
-    return this.emitWithSourceMapOld(files, outputFilename);
+    const ast = this.emitAST(files);
+    const { code, map } = this.generate(ast, {
+      sourceMap: true,
+      pretty: this.config.prettyPrint,
+      minify: this.config.minify,
+      file: outputFilename,
+    });
+    return { code, map: map! };
   }
 
   /** @deprecated — old string-based emit, kept for reference during migration */
@@ -412,9 +426,30 @@ export class Emitter {
     mqSources: string[],
     isTier: boolean,
   ): void {
-    // Collect stat frequencies for hoisting
+    // Sort: property-only first, then group by flag condition for better dedup
+    const sorted = [...rules].sort((a, b) => {
+      const aHasStats = a.statExpr !== null ? 1 : 0;
+      const bHasStats = b.statExpr !== null ? 1 : 0;
+      if (aHasStats !== bHasStats) return aHasStats - bHasStats;
+      // Secondary: group by flag condition so consecutive rules share the same flag check
+      const aFlag = this.getFlagKey(a.residualProperty);
+      const bFlag = this.getFlagKey(b.residualProperty);
+      if (aFlag < bFlag) return -1;
+      if (aFlag > bFlag) return 1;
+      return 0;
+    });
+
+    // Dead code elimination: if a rule has no residual property AND no stats,
+    // it's an unconditional match — everything after it is unreachable
+    const alive: GroupedRule[] = [];
+    for (const rule of sorted) {
+      alive.push(rule);
+      if (!rule.residualProperty && !rule.statExpr && !isTier) break;
+    }
+
+    // Collect stat frequencies for hoisting (only from alive rules)
     const statFreq = new Map<string, number>();
-    for (const rule of rules) {
+    for (const rule of alive) {
       if (rule.statExpr) {
         const stats = this.codegen.collectStatIds(rule.statExpr);
         for (const [name] of stats) {
@@ -439,27 +474,6 @@ export class Emitter {
           ? `const ${varName}=i.getStatEx(${stat[0]},${stat[1]})|0;`
           : `const ${varName}=i.getStatEx(${stat})|0;`);
       }
-    }
-
-    // Sort: property-only first, then group by flag condition for better dedup
-    const sorted = [...rules].sort((a, b) => {
-      const aHasStats = a.statExpr !== null ? 1 : 0;
-      const bHasStats = b.statExpr !== null ? 1 : 0;
-      if (aHasStats !== bHasStats) return aHasStats - bHasStats;
-      // Secondary: group by flag condition so consecutive rules share the same flag check
-      const aFlag = this.getFlagKey(a.residualProperty);
-      const bFlag = this.getFlagKey(b.residualProperty);
-      if (aFlag < bFlag) return -1;
-      if (aFlag > bFlag) return 1;
-      return 0;
-    });
-
-    // Dead code elimination: if a rule has no residual property AND no stats,
-    // it's an unconditional match — everything after it is unreachable
-    const alive: GroupedRule[] = [];
-    for (const rule of sorted) {
-      alive.push(rule);
-      if (!rule.residualProperty && !rule.statExpr && !isTier) break;
     }
 
     // Group consecutive rules by shared flag residual to avoid repeated getFlag calls

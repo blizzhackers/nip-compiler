@@ -18,6 +18,20 @@ import {
   cond, array, object, type NipLoc,
 } from './js-ast.js';
 
+interface ASTRuleBlock {
+  condition: ESTree.Expression | null;
+  conditionKey: string | null;
+  comment: string | null;
+  vars: ESTree.Statement[];
+  body: ESTree.Statement[];
+}
+
+interface ASTFlagGroup {
+  flagCondition: ESTree.Expression | null;
+  flagConditionKey: string | null;
+  rules: { original: GroupedRule; stripped: GroupedRule }[];
+}
+
 export class EmitterAST {
   private analyzer: Analyzer;
   private grouper: Grouper;
@@ -215,8 +229,7 @@ export class EmitterAST {
     const caseGroups: { keys: number[]; stmts: ESTree.Statement[] }[] = [];
     const bodyMap = new Map<string, number>();
     for (const entry of caseEntries) {
-      // Simple normalization: stringify the statements for comparison
-      const normalized = JSON.stringify(entry.stmts).replace(/\d+/g, '0');
+      const normalized = JSON.stringify(entry.stmts);
       const existing = bodyMap.get(normalized);
       if (existing !== undefined) {
         caseGroups[existing].keys.push(entry.key);
@@ -272,9 +285,28 @@ export class EmitterAST {
   private buildHoistedGroup(rules: GroupedRule[], mqSources: string[]): ESTree.Statement[] {
     const stmts: ESTree.Statement[] = [];
 
-    // Collect stat frequencies for hoisting
+    // Sort: property-only first, then group by flag condition for better dedup
+    const sorted = [...rules].sort((a, b) => {
+      const aHasStats = a.statExpr !== null ? 1 : 0;
+      const bHasStats = b.statExpr !== null ? 1 : 0;
+      if (aHasStats !== bHasStats) return aHasStats - bHasStats;
+      const aFlag = this.getFlagKey(a.residualProperty);
+      const bFlag = this.getFlagKey(b.residualProperty);
+      if (aFlag < bFlag) return -1;
+      if (aFlag > bFlag) return 1;
+      return 0;
+    });
+
+    // Dead code elimination: unconditional match makes everything after unreachable
+    const alive: GroupedRule[] = [];
+    for (const rule of sorted) {
+      alive.push(rule);
+      if (!rule.residualProperty && !rule.statExpr) break;
+    }
+
+    // Collect stat frequencies for hoisting (only from alive rules)
     const statFreq = new Map<string, number>();
-    for (const rule of rules) {
+    for (const rule of alive) {
       if (rule.statExpr) {
         const stats = this.codegen.collectStatIds(rule.statExpr);
         for (const [name] of stats) {
@@ -283,8 +315,9 @@ export class EmitterAST {
       }
     }
 
-    // Build hoisted var declarations
+    // Build hoisted var map (declarations emitted later)
     const hoisted = new Map<number | string, string>();
+    const hoistedDecls: ESTree.Statement[] = [];
     let varIdx = 0;
     for (const [name, count] of statFreq) {
       if (count >= 2) {
@@ -297,40 +330,83 @@ export class EmitterAST {
         const getStatArgs = Array.isArray(stat)
           ? [literal(stat[0]), literal(stat[1])]
           : [literal(stat)];
-        stmts.push(varDecl('const', [{
+        hoistedDecls.push(varDecl('const', [{
           id: varName,
           init: bin('|', call(member(ident('i'), 'getStatEx'), getStatArgs), literal(0)),
         }]));
       }
     }
 
-    // Split into base-stat and magical-stat rules
-    const baseRules: GroupedRule[] = [];
-    const magicalRules: GroupedRule[] = [];
+    // Group consecutive rules by shared flag/property condition
+    const groups = this.groupBySharedConditionAST(alive);
+
+    // Split all rules across all groups into base-stat vs magical-only
+    const baseGroups: ASTFlagGroup[] = [];
+    const magicalGroups: ASTFlagGroup[] = [];
     let firstMagicalSource: string | null = null;
 
-    for (const rule of rules) {
-      if (rule.statExpr && this.usesMagicalStatsOnly(rule.statExpr)) {
-        magicalRules.push(rule);
-        if (!firstMagicalSource) firstMagicalSource = rule.source;
+    for (const group of groups) {
+      const baseRules: typeof group.rules = [];
+      const magicalRules: typeof group.rules = [];
+
+      for (const rule of group.rules) {
+        const effective = group.flagCondition ? rule.stripped : rule.original;
+        if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
+          magicalRules.push(rule);
+          if (!firstMagicalSource) firstMagicalSource = effective.source;
+        } else {
+          baseRules.push(rule);
+        }
+      }
+
+      if (baseRules.length > 0) baseGroups.push({ ...group, rules: baseRules });
+      if (magicalRules.length > 0) magicalGroups.push({ ...group, rules: magicalRules });
+    }
+
+    // Hoisted vars first (shared across base + magical rules)
+    stmts.push(...hoistedDecls);
+
+    // Base-stat rules with chaining
+    let pendingBaseBlocks: ASTRuleBlock[] = [];
+    for (const group of baseGroups) {
+      const blocks: ASTRuleBlock[] = [];
+      for (const rule of group.rules) {
+        const effective = group.flagCondition ? rule.stripped : rule.original;
+        blocks.push(this.buildCheckRuleBlock(effective, mqSources, hoisted));
+      }
+      if (group.flagCondition) {
+        stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
+        pendingBaseBlocks = [];
+        stmts.push(ifStmt(group.flagCondition, this.chainBlocksAST(blocks)));
       } else {
-        baseRules.push(rule);
+        pendingBaseBlocks.push(...blocks);
       }
     }
+    stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
 
-    // Base-stat rules
-    for (const rule of baseRules) {
-      stmts.push(...this.buildCheckRuleStmts(rule, mqSources, true, hoisted));
-    }
-
-    // Unid bail + magical rules
-    if (magicalRules.length > 0 && firstMagicalSource) {
+    if (magicalGroups.length > 0 && firstMagicalSource) {
+      // Unid bail
       const maybeId = this.getSourceId(firstMagicalSource);
       stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
 
-      for (const rule of magicalRules) {
-        stmts.push(...this.buildCheckRuleStmts(rule, mqSources, true, hoisted));
+      // Magical rules with chaining and stripped _id checks
+      let pendingMagicalBlocks: ASTRuleBlock[] = [];
+      for (const group of magicalGroups) {
+        const blocks: ASTRuleBlock[] = [];
+        for (const rule of group.rules) {
+          const effective = group.flagCondition ? rule.stripped : rule.original;
+          const stripped = this.stripIdentifiedCheck(effective);
+          blocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted));
+        }
+        if (group.flagCondition) {
+          stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
+          pendingMagicalBlocks = [];
+          stmts.push(ifStmt(group.flagCondition, this.chainBlocksAST(blocks)));
+        } else {
+          pendingMagicalBlocks.push(...blocks);
+        }
       }
+      stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
     }
 
     return stmts;
@@ -376,6 +452,9 @@ export class EmitterAST {
       return this.comments ? withLeadingComment(s, ` ${sourceComment}`) : s;
     };
 
+    const maybeId = this.getSourceId(rule.source) + 1;
+    const maybeStmt: ESTree.Statement = exprStmt(assign(ident('_r'), literal(-(maybeId))));
+
     if (conditions.length > 0 && hasStats) {
       const propCond = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
       if (hasMq) {
@@ -387,14 +466,43 @@ export class EmitterAST {
           ]),
           literal(rule.maxQuantity!));
         stmts.push(wrapComment(ifStmt(propCond, [ifStmt(statExpr!, [ifStmt(mqCheck, [matchStmt])])])));
-      } else {
+      } else if (skipMaybe) {
         stmts.push(wrapComment(ifStmt(propCond, [ifStmt(statExpr!, [matchStmt])])));
+      } else {
+        // if(prop){if(stat){return N}else if(!_id)_r=-N}
+        const inner: ESTree.IfStatement = {
+          type: 'IfStatement',
+          test: statExpr!,
+          consequent: { type: 'BlockStatement', body: [matchStmt] },
+          alternate: ifStmt(unary('!', ident('_id')), [maybeStmt]),
+        };
+        stmts.push(wrapComment(ifStmt(propCond, [inner])));
       }
     } else if (conditions.length > 0) {
       const propCond = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
       stmts.push(wrapComment(ifStmt(propCond, [matchStmt])));
     } else if (hasStats) {
-      stmts.push(wrapComment(ifStmt(statExpr!, [matchStmt])));
+      if (hasMq) {
+        const mqEntry = memberComputed(ident('_mq'), literal(mqIdx));
+        const mqCheck = bin('<',
+          call(ident('checkQuantityOwned'), [
+            literal(null),
+            member(mqEntry, 'stat'),
+          ]),
+          literal(rule.maxQuantity!));
+        stmts.push(wrapComment(ifStmt(statExpr!, [ifStmt(mqCheck, [matchStmt])])));
+      } else if (skipMaybe) {
+        stmts.push(wrapComment(ifStmt(statExpr!, [matchStmt])));
+      } else {
+        // if(stat){return N}else if(!_id)_r=-N
+        const inner: ESTree.IfStatement = {
+          type: 'IfStatement',
+          test: statExpr!,
+          consequent: { type: 'BlockStatement', body: [matchStmt] },
+          alternate: ifStmt(unary('!', ident('_id')), [maybeStmt]),
+        };
+        stmts.push(wrapComment(inner));
+      }
     } else {
       stmts.push(wrapComment(matchStmt));
     }
@@ -568,6 +676,406 @@ export class EmitterAST {
       this.collectStatNumbers(expr.right, ids);
     } else if (expr.kind === NodeKind.UnaryExpr) {
       this.collectStatNumbers(expr.operand, ids);
+    }
+  }
+
+  private buildCheckRuleBlock(
+    rule: GroupedRule,
+    mqSources: string[],
+    hoisted?: Map<number | string, string>,
+  ): ASTRuleBlock {
+    const comment = this.comments
+      ? `${rule.source}${rule.line.comment ? ' — ' + rule.line.comment.trim() : ''}`
+      : null;
+
+    const conditions: ESTree.Expression[] = [];
+    if (rule.residualProperty) {
+      conditions.push(this.codegen.emitPropertyExpr(rule.residualProperty));
+    }
+
+    const hasStats = rule.statExpr !== null;
+    const reorderedStat = hasStats ? this.reorderBySelectivity(rule.statExpr!) : null;
+
+    const vars: ESTree.Statement[] = [];
+    const exprHoisted = new Map<number | string, string>(hoisted ?? []);
+
+    // Per-rule local hoisting: stats used 2+ times within this single rule
+    if (reorderedStat) {
+      const freq = new Map<string, number>();
+      this.countStatFreq(reorderedStat, freq);
+      for (const [name, count] of freq) {
+        if (count < 2) continue;
+        const stat = this.config.aliases.stat[name];
+        const numStat = stat === undefined
+          ? (name.includes(',') ? name.split(',').map(Number) as [number, number] : Number(name))
+          : stat;
+        if (typeof numStat === 'number' && isNaN(numStat)) continue;
+        const key = Array.isArray(numStat) ? `${numStat[0]}_${numStat[1]}` : numStat;
+        if (exprHoisted.has(key)) continue;
+        const varName = `_l${exprHoisted.size}`;
+        exprHoisted.set(key, varName);
+        const getStatArgs = Array.isArray(numStat)
+          ? [literal(numStat[0]), literal(numStat[1])]
+          : [literal(numStat)];
+        vars.push(varDecl('const', [{
+          id: varName,
+          init: bin('|', call(member(ident('i'), 'getStatEx'), getStatArgs), literal(0)),
+        }]));
+      }
+    }
+
+    const statExpr = reorderedStat
+      ? this.codegen.emitStatExprWithHoisted(reorderedStat, exprHoisted)
+      : null;
+
+    const mqIdx = mqSources.indexOf(rule.source);
+    const hasMq = mqIdx !== -1;
+    const matchStmt = returnStmt(literal(this.getSourceId(rule.source) + 1));
+
+    let condition: ESTree.Expression | null = null;
+    const body: ESTree.Statement[] = [];
+
+    if (conditions.length > 0 && hasStats) {
+      condition = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
+      if (hasMq) {
+        const mqEntry = memberComputed(ident('_mq'), literal(mqIdx));
+        const mqCheck = bin('<',
+          call(ident('checkQuantityOwned'), [
+            member(mqEntry, 'prop'),
+            member(mqEntry, 'stat'),
+          ]),
+          literal(rule.maxQuantity!));
+        body.push(ifStmt(statExpr!, [ifStmt(mqCheck, [matchStmt])]));
+      } else {
+        body.push(ifStmt(statExpr!, [matchStmt]));
+      }
+    } else if (conditions.length > 0) {
+      condition = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
+      if (hasMq) {
+        const mqEntry = memberComputed(ident('_mq'), literal(mqIdx));
+        const mqCheck = bin('<',
+          call(ident('checkQuantityOwned'), [
+            member(mqEntry, 'prop'),
+            literal(null),
+          ]),
+          literal(rule.maxQuantity!));
+        body.push(ifStmt(mqCheck, [matchStmt]));
+      } else {
+        body.push(matchStmt);
+      }
+    } else if (hasStats) {
+      condition = statExpr;
+      if (hasMq) {
+        const mqEntry = memberComputed(ident('_mq'), literal(mqIdx));
+        const mqCheck = bin('<',
+          call(ident('checkQuantityOwned'), [
+            literal(null),
+            member(mqEntry, 'stat'),
+          ]),
+          literal(rule.maxQuantity!));
+        body.push(ifStmt(mqCheck, [matchStmt]));
+      } else {
+        body.push(matchStmt);
+      }
+    } else {
+      body.push(matchStmt);
+    }
+
+    const conditionKey = condition ? JSON.stringify(condition) : null;
+    return { condition, conditionKey, comment, vars, body };
+  }
+
+  private chainBlocksAST(blocks: ASTRuleBlock[]): ESTree.Statement[] {
+    const stmts: ESTree.Statement[] = [];
+    let i = 0;
+    while (i < blocks.length) {
+      const blk = blocks[i];
+      if (!blk.condition) {
+        if (blk.comment) {
+          const first = blk.vars.length > 0 ? blk.vars[0] : blk.body[0];
+          if (first) withLeadingComment(first, ` ${blk.comment}`);
+        }
+        stmts.push(...blk.vars, ...blk.body);
+        i++;
+        continue;
+      }
+
+      const allVars = [...blk.vars];
+      const entries: { comment: string | null; body: ESTree.Statement[]; isElse: boolean }[] = [
+        { comment: blk.comment, body: blk.body, isElse: false },
+      ];
+      const baseCond = blk.condition;
+      const baseKey = blk.conditionKey;
+      i++;
+
+      while (i < blocks.length && blocks[i].condition) {
+        const next = blocks[i];
+        if (next.conditionKey === baseKey) {
+          allVars.push(...next.vars);
+          entries.push({ comment: next.comment, body: next.body, isElse: false });
+          i++;
+        } else if (this.isComplementAST(baseCond, next.condition!)) {
+          allVars.push(...next.vars);
+          entries.push({ comment: next.comment, body: next.body, isElse: true });
+          i++;
+          break;
+        } else {
+          break;
+        }
+      }
+
+      stmts.push(...allVars);
+
+      // Build the if body
+      const ifBody: ESTree.Statement[] = [];
+      let elseBody: ESTree.Statement[] | null = null;
+      for (const entry of entries) {
+        const target = entry.isElse ? (elseBody = []) : ifBody;
+        if (entry.comment) {
+          const first = entry.body[0];
+          if (first) withLeadingComment(first, ` ${entry.comment}`);
+          target.push(...entry.body);
+        } else {
+          target.push(...entry.body);
+        }
+      }
+
+      if (elseBody) {
+        const ifNode: ESTree.IfStatement = {
+          type: 'IfStatement',
+          test: baseCond,
+          consequent: { type: 'BlockStatement', body: ifBody },
+          alternate: { type: 'BlockStatement', body: elseBody },
+        };
+        stmts.push(ifNode);
+      } else {
+        stmts.push(ifStmt(baseCond, ifBody));
+      }
+    }
+    return stmts;
+  }
+
+  private isComplementAST(a: ESTree.Expression, b: ESTree.Expression): boolean {
+    // !X vs X
+    if (a.type === 'UnaryExpression' && a.operator === '!' && a.prefix) {
+      if (JSON.stringify(a.argument) === JSON.stringify(b)) return true;
+    }
+    if (b.type === 'UnaryExpression' && b.operator === '!' && b.prefix) {
+      if (JSON.stringify(b.argument) === JSON.stringify(a)) return true;
+    }
+
+    // X op1 Y vs X op2 Y where ops are complementary
+    if (a.type === 'BinaryExpression' && b.type === 'BinaryExpression') {
+      if (JSON.stringify(a.left) === JSON.stringify(b.left) &&
+          JSON.stringify(a.right) === JSON.stringify(b.right)) {
+        const comp: Record<string, string> = {
+          '<': '>=', '>=': '<', '<=': '>', '>': '<=', '===': '!==', '!==': '===',
+          '==': '!=', '!=': '==',
+        };
+        return comp[a.operator] === b.operator;
+      }
+    }
+
+    return false;
+  }
+
+  private groupBySharedConditionAST(rules: GroupedRule[]): ASTFlagGroup[] {
+    const groups: ASTFlagGroup[] = [];
+    let current: ASTFlagGroup | null = null;
+
+    for (const rule of rules) {
+      const extracted = this.extractGroupableCondition(rule.residualProperty);
+
+      if (extracted) {
+        const condExpr = this.codegen.emitPropertyExpr(extracted.condition);
+        const condKey = JSON.stringify(condExpr);
+        if (current && current.flagConditionKey === condKey) {
+          current.rules.push({ original: rule, stripped: { ...rule, residualProperty: extracted.rest } });
+        } else {
+          current = {
+            flagCondition: condExpr,
+            flagConditionKey: condKey,
+            rules: [{ original: rule, stripped: { ...rule, residualProperty: extracted.rest } }],
+          };
+          groups.push(current);
+        }
+      } else {
+        current = null;
+        groups.push({
+          flagCondition: null,
+          flagConditionKey: null,
+          rules: [{ original: rule, stripped: rule }],
+        });
+      }
+    }
+
+    // Only wrap in if-block when 2+ rules share the same condition
+    return groups.map(g => {
+      if (g.flagCondition && g.rules.length < 2) {
+        return {
+          flagCondition: null,
+          flagConditionKey: null,
+          rules: [{ original: g.rules[0].original, stripped: g.rules[0].original }],
+        };
+      }
+      return g;
+    });
+  }
+
+  private extractGroupableCondition(expr: ExprNode | null): { condition: ExprNode; rest: ExprNode | null } | null {
+    if (!expr) return null;
+
+    if (this.isPropertyOnlyExpr(expr)) {
+      return { condition: expr, rest: null };
+    }
+
+    if (expr.kind !== NodeKind.BinaryExpr || expr.op !== '&&') return null;
+
+    const leftProp = this.isPropertyOnlyExpr(expr.left);
+    const rightProp = this.isPropertyOnlyExpr(expr.right);
+
+    if (leftProp && rightProp) {
+      const leftCallable = this.isCallablePropertyExpr(expr.left);
+      const rightCallable = this.isCallablePropertyExpr(expr.right);
+      if (!leftCallable && rightCallable) return { condition: expr.left, rest: expr.right };
+      if (leftCallable && !rightCallable) return { condition: expr.right, rest: expr.left };
+    }
+
+    if (leftProp) return { condition: expr.left, rest: expr.right };
+    if (rightProp) return { condition: expr.right, rest: expr.left };
+    return null;
+  }
+
+  private isPropertyOnlyExpr(expr: ExprNode): boolean {
+    switch (expr.kind) {
+      case NodeKind.KeywordExpr:
+        return expr.name in { flag: 1, quality: 1, class: 1, level: 1, classid: 1, name: 1, type: 1, color: 1 };
+      case NodeKind.BinaryExpr:
+        if (expr.op === '==' || expr.op === '!=' || expr.op === '<=' || expr.op === '>=' || expr.op === '<' || expr.op === '>') {
+          return this.isPropertyOnlyExpr(expr.left) || expr.right.kind === NodeKind.NumberLiteral || expr.right.kind === NodeKind.Identifier;
+        }
+        return false;
+      case NodeKind.UnaryExpr:
+        return this.isPropertyOnlyExpr(expr.operand);
+      default:
+        return false;
+    }
+  }
+
+  private isCallablePropertyExpr(expr: ExprNode): boolean {
+    if (expr.kind === NodeKind.KeywordExpr)
+      return expr.name === 'flag' || expr.name === 'prefix' || expr.name === 'suffix';
+    if (expr.kind === NodeKind.BinaryExpr)
+      return this.isCallablePropertyExpr(expr.left);
+    if (expr.kind === NodeKind.UnaryExpr)
+      return this.isCallablePropertyExpr(expr.operand);
+    return false;
+  }
+
+  private getFlagKey(expr: ExprNode | null): string {
+    if (!expr) return '';
+    const flag = this.extractGroupableCondition(expr);
+    if (!flag) return '';
+    return JSON.stringify(this.codegen.emitPropertyExpr(flag.condition));
+  }
+
+  private stripIdentifiedCheck(rule: GroupedRule): GroupedRule {
+    if (!rule.residualProperty) return rule;
+    const stripped = this.removeIdentifiedExpr(rule.residualProperty);
+    return { ...rule, residualProperty: stripped };
+  }
+
+  private removeIdentifiedExpr(expr: ExprNode): ExprNode | null {
+    if (expr.kind === NodeKind.BinaryExpr) {
+      if (expr.op === '==' && expr.left.kind === NodeKind.KeywordExpr
+        && expr.left.name === 'flag' && expr.right.kind === NodeKind.Identifier
+        && expr.right.name === 'identified') return null;
+      if (expr.op === '&&') {
+        const left = this.removeIdentifiedExpr(expr.left);
+        const right = this.removeIdentifiedExpr(expr.right);
+        if (left === null && right === null) return null;
+        if (left === null) return right;
+        if (right === null) return left;
+        return { ...expr, left, right };
+      }
+    }
+    return expr;
+  }
+
+  private reorderBySelectivity(expr: ExprNode): ExprNode {
+    if (expr.kind !== NodeKind.BinaryExpr) return expr;
+    if (expr.op === '&&' || expr.op === '||') {
+      const left = this.reorderBySelectivity(expr.left);
+      const right = this.reorderBySelectivity(expr.right);
+      expr = { ...expr, left, right };
+    }
+    if (expr.op === '&&') {
+      const conjuncts = this.flattenAnd(expr);
+      conjuncts.sort((a, b) => this.selectivityScore(a) - this.selectivityScore(b));
+      return this.rebuildChain(conjuncts, '&&');
+    }
+    if (expr.op === '||') {
+      const disjuncts = this.flattenOr(expr);
+      disjuncts.sort((a, b) => this.exprCost(a) - this.exprCost(b));
+      return this.rebuildChain(disjuncts, '||');
+    }
+    return expr;
+  }
+
+  private rebuildChain(exprs: ExprNode[], op: '&&' | '||'): ExprNode {
+    let result = exprs[0];
+    for (let i = 1; i < exprs.length; i++) {
+      result = { kind: NodeKind.BinaryExpr as const, op, left: result, right: exprs[i], loc: result.loc };
+    }
+    return result;
+  }
+
+  private selectivityScore(expr: ExprNode): number {
+    if (expr.kind === NodeKind.BinaryExpr) {
+      if (expr.op === '==') return 0;
+      if (expr.op === '!=') return 1;
+      if (expr.op === '>=' || expr.op === '<=' || expr.op === '>' || expr.op === '<') return 2;
+      if (expr.op === '&&') return Math.min(this.selectivityScore(expr.left), this.selectivityScore(expr.right));
+      if (expr.op === '||') return 3;
+    }
+    return 4;
+  }
+
+  private exprCost(expr: ExprNode): number {
+    if (expr.kind === NodeKind.NumberLiteral || expr.kind === NodeKind.Identifier || expr.kind === NodeKind.KeywordExpr) return 1;
+    if (expr.kind === NodeKind.UnaryExpr) return 1 + this.exprCost(expr.operand);
+    if (expr.kind === NodeKind.BinaryExpr) return 1 + this.exprCost(expr.left) + this.exprCost(expr.right);
+    return 1;
+  }
+
+  private flattenAnd(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
+    if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
+      this.flattenAnd(expr.left, out);
+      this.flattenAnd(expr.right, out);
+    } else {
+      out.push(expr);
+    }
+    return out;
+  }
+
+  private flattenOr(expr: ExprNode, out: ExprNode[] = []): ExprNode[] {
+    if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
+      this.flattenOr(expr.left, out);
+      this.flattenOr(expr.right, out);
+    } else {
+      out.push(expr);
+    }
+    return out;
+  }
+
+  private countStatFreq(expr: ExprNode, freq: Map<string, number>): void {
+    if (expr.kind === NodeKind.KeywordExpr) {
+      freq.set(expr.name, (freq.get(expr.name) ?? 0) + 1);
+    } else if (expr.kind === NodeKind.BinaryExpr) {
+      this.countStatFreq(expr.left, freq);
+      this.countStatFreq(expr.right, freq);
+    } else if (expr.kind === NodeKind.UnaryExpr) {
+      this.countStatFreq(expr.operand, freq);
     }
   }
 }

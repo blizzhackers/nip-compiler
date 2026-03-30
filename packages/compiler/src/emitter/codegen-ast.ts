@@ -19,7 +19,7 @@ function propertyExpr(name: string, standalone: boolean): ESTree.Expression {
     case 'quality': return standalone ? member(ident('i'), 'quality') : ident('_q');
     case 'class': return member(ident('i'), 'itemclass');
     case 'level': return member(ident('i'), 'ilvl');
-    case 'charlvl': return member(member(ident('me'), 'charlvl'), ''); // me.charlvl — handled below
+    case 'charlvl': return member(ident('me'), 'charlvl');
     case 'strreq': return member(ident('i'), 'strreq');
     case 'dexreq': return member(ident('i'), 'dexreq');
     case 'color': return call(member(ident('i'), 'getColor'), []);
@@ -43,7 +43,6 @@ function propertyExpr(name: string, standalone: boolean): ESTree.Expression {
   }
   if (name === 'hardcore') return unary('!', unary('!', member(ident('me'), 'playertype')));
   if (name === 'classic') return unary('!', member(ident('me'), 'gametype'));
-  if (name === 'charlvl') return member(ident('me'), 'charlvl');
   // Realm checks
   for (const realm of ['europe', 'uswest', 'useast', 'asia']) {
     if (name === realm) {
