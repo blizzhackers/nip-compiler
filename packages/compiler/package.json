@@ -27,8 +27,13 @@
     "compile": "tsx src/cli.ts"
   },
   "devDependencies": {
+    "@types/escodegen": "^0.0.10",
+    "@types/estree": "^1.0.8",
     "@types/node": "^25.5.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "escodegen": "^2.1.0"
   }
 }
