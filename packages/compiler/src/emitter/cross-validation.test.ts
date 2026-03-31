@@ -307,11 +307,62 @@ const TEST_ITEMS: TestItem[] = [
   { label: 'unidentified unique ring empty stats', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0, stats: {} } },
   { label: 'unidentified rare ring', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), flags: 0, stats: {} } },
   { label: 'unidentified unique amulet', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), flags: 0, stats: {} } },
+  // --- Quality range items (triggers [quality] <= superior switch cases) ---
+  { label: 'lowquality monarch 4os', mock: { classid: cid('monarch'), quality: qid('lowquality'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'superior monarch 4os', mock: { classid: cid('monarch'), quality: qid('superior'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'magic monarch 4os (fails quality range)', mock: { classid: cid('monarch'), quality: qid('magic'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'rare monarch (fails quality range)', mock: { classid: cid('monarch'), quality: qid('rare'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'normal duskshroud 3os non-eth', mock: { classid: cid('duskshroud'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 3 } } },
+  { label: 'superior wyrmhide 4os non-eth', mock: { classid: cid('wyrmhide'), quality: qid('superior'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'eth superior duskshroud 3os (fails non-eth)', mock: { classid: cid('duskshroud'), quality: qid('superior'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 3 } } },
+  // --- Complement chains (eth vs non-eth on same classid) ---
+  { label: 'eth unique sacred armor ed220', mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 220, [sidKey('strength')]: 20 } } },
+  { label: 'non-eth unique sacred armor str20', mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('strength')]: 20 } } },
+  { label: 'non-eth unique sacred armor no str', mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10, stats: {} } },
+  // --- Unid items with base stats (defense readable on unid) ---
+  { label: 'unid unique monarch', mock: { classid: cid('monarch'), quality: qid('unique'), itemType: tid('shield'), flags: 0, stats: { [sidKey('defense')]: 148 } } },
+  { label: 'unid unique shako', mock: { classid: cid('shako'), quality: qid('unique'), itemType: tid('helm'), flags: 0, stats: {} } },
+  { label: 'identified rare archonplate no stats', mock: { classid: cid('archonplate'), quality: qid('rare'), itemType: tid('armor'), flags: 0x10, stats: {} } },
+  { label: 'unid rare archonplate', mock: { classid: cid('archonplate'), quality: qid('rare'), itemType: tid('armor'), flags: 0, stats: {} } },
+  { label: 'unid set lacqueredplate', mock: { classid: cid('lacqueredplate'), quality: qid('set'), itemType: tid('armor'), flags: 0, stats: {} } },
+  // --- Various weapon types ---
+  { label: 'unique phase blade ed300', mock: { classid: cid('phaseblade'), quality: qid('unique'), itemType: tid('sword'), stats: { [sidKey('enhanceddamage')]: 300 } } },
+  { label: 'eth unique berserker axe ed370', mock: { classid: cid('berserkeraxe'), quality: qid('unique'), itemType: tid('axe'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddamage')]: 370 } } },
+  { label: 'non-eth unique berserker axe', mock: { classid: cid('berserkeraxe'), quality: qid('unique'), itemType: tid('axe'), flags: 0x10, stats: { [sidKey('enhanceddamage')]: 370 } } },
+  // --- All rune range (istrune..zodrune) ---
+  { label: 'Gul rune', mock: { classid: cid('gulrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Vex rune', mock: { classid: cid('vexrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Ohm rune', mock: { classid: cid('ohmrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Lo rune', mock: { classid: cid('lorune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Sur rune', mock: { classid: cid('surrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Cham rune', mock: { classid: cid('chamrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Zod rune', mock: { classid: cid('zodrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Mal rune (below ist, no match)', mock: { classid: cid('malrune'), quality: qid('normal'), itemType: tid('rune') } },
+  { label: 'Um rune (below ist, no match)', mock: { classid: cid('umrune'), quality: qid('normal'), itemType: tid('rune') } },
+  // --- Runeword items (catch-all flag dispatch) ---
+  { label: 'runeword armor 4os identified', mock: { classid: cid('archonplate'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'runeword armor 0os', mock: { classid: cid('archonplate'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 0 } } },
+  { label: 'runeword sword 4os', mock: { classid: cid('phaseblade'), quality: qid('unique'), itemType: tid('sword'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 4 } } },
+  // --- Shields (stormshield) ---
+  { label: 'unique monarch ed150 (stormshield)', mock: { classid: cid('monarch'), quality: qid('unique'), itemType: tid('shield'), stats: { [sidKey('enhanceddefense')]: 150 } } },
+  { label: 'unique monarch ed140 (low stormshield)', mock: { classid: cid('monarch'), quality: qid('unique'), itemType: tid('shield'), stats: { [sidKey('enhanceddefense')]: 140 } } },
+  // --- Type-based with various qualities ---
+  { label: 'normal eth armor def500 4os', mock: { classid: cid('sacredarmor'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 500 } } },
+  { label: 'normal eth armor def1500 4os', mock: { classid: cid('sacredarmor'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 1500 } } },
+  { label: 'non-eth normal armor 4os def1200', mock: { classid: cid('sacredarmor'), quality: qid('normal'), itemType: tid('armor'), flags: 0x10, stats: { [sidKey('sockets')]: 4, [sidKey('defense')]: 1200 } } },
+  // --- Misc edge cases ---
+  { label: 'crafted ring (quality 8)', mock: { classid: cid('ring'), quality: qid('crafted'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10, [sidKey('maxhp')]: 40 } } },
+  { label: 'set ring', mock: { classid: cid('ring'), quality: qid('set'), itemType: tid('ring'), stats: {} } },
+  { label: 'eth non-unique duskshroud', mock: { classid: cid('duskshroud'), quality: qid('rare'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 100 } } },
+  { label: 'normal broadsword 4os', mock: { classid: cid('broadsword'), quality: qid('normal'), itemType: tid('sword'), stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'magic amulet low mf', mock: { classid: cid('amulet'), quality: qid('magic'), itemType: tid('amulet'), stats: { [sidKey('itemmagicbonus')]: 35 } } },
   // --- No match ---
   { label: 'normal ring', mock: { classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') } },
   { label: 'random unknown classid', mock: { classid: 999, quality: qid('normal'), itemType: 99 } },
   { label: 'low quality amulet', mock: { classid: cid('amulet'), quality: qid('lowquality'), itemType: tid('amulet') } },
   { label: 'normal sword', mock: { classid: cid('broadsword'), quality: qid('normal'), itemType: tid('sword') } },
+  { label: 'unique unknown classid', mock: { classid: 888, quality: qid('unique'), itemType: 50, stats: { [sidKey('maxhp')]: 100 } } },
+  { label: 'normal potion', mock: { classid: 500, quality: qid('normal'), itemType: tid('potion') } },
 ];
 
 describe('Cross-validation: our emitter vs original NTIP', () => {

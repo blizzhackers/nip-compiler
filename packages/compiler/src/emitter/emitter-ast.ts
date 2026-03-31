@@ -454,9 +454,9 @@ export class EmitterAST {
       }
     }
 
-    // Build hoisted var map and lazy declaration builders
+    // Build hoisted var declarations (emitted upfront — shared across base + magical)
     const hoisted = new Map<number | string, string>();
-    const hoistedDeclBuilders = new Map<number | string, () => ESTree.Statement>();
+    const hoistedDecls: ESTree.Statement[] = [];
     let varIdx = 0;
     for (const [name, count] of statFreq) {
       if (count >= 2) {
@@ -466,87 +466,93 @@ export class EmitterAST {
         if (hoisted.has(key)) continue;
         const varName = `_h${varIdx++}`;
         hoisted.set(key, varName);
-        hoistedDeclBuilders.set(key, () => {
-          const getStatArgs = Array.isArray(stat)
-            ? [literal(stat[0]), literal(stat[1])]
-            : [literal(stat)];
-          return varDecl('const', [{
-            id: varName,
-            init: bin('|', call(member(ident('i'), 'getStatEx'), getStatArgs), literal(0)),
-          }]);
-        });
+        const getStatArgs = Array.isArray(stat)
+          ? [literal(stat[0]), literal(stat[1])]
+          : [literal(stat)];
+        hoistedDecls.push(varDecl('const', [{
+          id: varName,
+          init: bin('|', call(member(ident('i'), 'getStatEx'), getStatArgs), literal(0)),
+        }]));
       }
     }
-    const hoistedEmitted = new Set<number | string>();
 
     // Group consecutive rules by shared flag/property condition
     const groups = this.groupBySharedConditionAST(alive);
 
-    // Split all rules across all groups into base-stat vs magical-only
-    const baseGroups: ASTFlagGroup[] = [];
-    const magicalGroups: ASTFlagGroup[] = [];
-    let firstMagicalSource: string | null = null;
+    // Emit groups. Flagged groups are self-contained (base + unid bail + magical
+    // all inside the if(flag) block) because the flag is a property condition that
+    // must pass before unid bail fires. Unflagged groups accumulate and get a
+    // shared unid bail at the end.
+    stmts.push(...hoistedDecls);
+    let pendingBaseBlocks: ASTRuleBlock[] = [];
+    let pendingMagicalBlocks: ASTRuleBlock[] = [];
+    let pendingMagicalSource: string | null = null;
+
+    const flushPending = (): void => {
+      stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
+      pendingBaseBlocks = [];
+      if (pendingMagicalBlocks.length > 0 && pendingMagicalSource) {
+        const maybeId = this.getSourceId(pendingMagicalSource);
+        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+        stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
+        pendingMagicalBlocks = [];
+        pendingMagicalSource = null;
+      }
+    };
 
     for (const group of groups) {
-      const baseRules: typeof group.rules = [];
-      const magicalRules: typeof group.rules = [];
-
-      for (const rule of group.rules) {
-        const effective = group.flagCondition ? rule.stripped : rule.original;
-        if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
-          magicalRules.push(rule);
-          if (!firstMagicalSource) firstMagicalSource = effective.source;
-        } else {
-          baseRules.push(rule);
-        }
-      }
-
-      if (baseRules.length > 0) baseGroups.push({ ...group, rules: baseRules });
-      if (magicalRules.length > 0) magicalGroups.push({ ...group, rules: magicalRules });
-    }
-
-    // Base-stat rules with chaining (hoisted vars emitted lazily per rule)
-    let pendingBaseBlocks: ASTRuleBlock[] = [];
-    for (const group of baseGroups) {
-      const blocks: ASTRuleBlock[] = [];
-      for (const rule of group.rules) {
-        const effective = group.flagCondition ? rule.stripped : rule.original;
-        blocks.push(this.buildCheckRuleBlock(effective, mqSources, hoisted, hoistedDeclBuilders, hoistedEmitted));
-      }
       if (group.flagCondition) {
-        stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
-        pendingBaseBlocks = [];
-        stmts.push(ifStmt(group.flagCondition, this.chainBlocksAST(blocks)));
-      } else {
-        pendingBaseBlocks.push(...blocks);
-      }
-    }
-    stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
+        // Flush any pending unflagged blocks first
+        flushPending();
 
-    if (magicalGroups.length > 0 && firstMagicalSource) {
-      // Unid bail
-      const maybeId = this.getSourceId(firstMagicalSource);
-      stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+        // Self-contained flagged group: base + unid bail + magical all inside if(flag)
+        const baseRules: typeof group.rules = [];
+        const magicalRules: typeof group.rules = [];
+        let firstMagical: string | null = null;
 
-      // Magical rules with chaining and stripped _id checks
-      let pendingMagicalBlocks: ASTRuleBlock[] = [];
-      for (const group of magicalGroups) {
-        const blocks: ASTRuleBlock[] = [];
         for (const rule of group.rules) {
-          const effective = group.flagCondition ? rule.stripped : rule.original;
-          const stripped = this.stripIdentifiedCheck(effective);
-          blocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted, hoistedDeclBuilders, hoistedEmitted));
+          const effective = rule.stripped;
+          if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
+            magicalRules.push(rule);
+            if (!firstMagical) firstMagical = effective.source;
+          } else {
+            baseRules.push(rule);
+          }
         }
-        if (group.flagCondition) {
-          stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
-          pendingMagicalBlocks = [];
-          stmts.push(ifStmt(group.flagCondition, this.chainBlocksAST(blocks)));
-        } else {
-          pendingMagicalBlocks.push(...blocks);
+
+        const innerStmts: ESTree.Statement[] = [];
+        const baseBlocks = baseRules.map(r =>
+          this.buildCheckRuleBlock(r.stripped, mqSources, hoisted));
+        innerStmts.push(...this.chainBlocksAST(baseBlocks));
+
+        if (magicalRules.length > 0 && firstMagical) {
+          const maybeId = this.getSourceId(firstMagical);
+          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+          const magicBlocks = magicalRules.map(r => {
+            const stripped = this.stripIdentifiedCheck(r.stripped);
+            return this.buildCheckRuleBlock(stripped, mqSources, hoisted);
+          });
+          innerStmts.push(...this.chainBlocksAST(magicBlocks));
+        }
+
+        stmts.push(ifStmt(group.flagCondition, innerStmts));
+      } else {
+        // Unflagged: accumulate base/magical separately
+        for (const rule of group.rules) {
+          const effective = rule.original;
+          if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
+            if (!pendingMagicalSource) pendingMagicalSource = effective.source;
+            const stripped = this.stripIdentifiedCheck(effective);
+            pendingMagicalBlocks.push(
+              this.buildCheckRuleBlock(stripped, mqSources, hoisted));
+          } else {
+            pendingBaseBlocks.push(
+              this.buildCheckRuleBlock(effective, mqSources, hoisted));
+          }
         }
       }
-      stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
     }
+    flushPending();
 
     return stmts;
   }
@@ -822,8 +828,6 @@ export class EmitterAST {
     rule: GroupedRule,
     mqSources: string[],
     hoisted?: Map<number | string, string>,
-    hoistedDeclBuilders?: Map<number | string, () => ESTree.Statement>,
-    hoistedEmitted?: Set<number | string>,
   ): ASTRuleBlock {
     const comment = this.comments
       ? `${rule.source}${rule.line.comment ? ' — ' + rule.line.comment.trim() : ''}`
@@ -839,19 +843,6 @@ export class EmitterAST {
 
     const vars: ESTree.Statement[] = [];
     const exprHoisted = new Map<number | string, string>(hoisted ?? []);
-
-    // Lazy group-level hoisted var emission: emit declarations for vars this rule needs
-    if (reorderedStat && hoistedDeclBuilders && hoistedEmitted) {
-      const needed = this.codegen.collectStatIds(reorderedStat);
-      for (const [name] of needed) {
-        const stat = this.config.aliases.stat[name];
-        if (stat === undefined) continue;
-        const key = Array.isArray(stat) ? `${stat[0]}_${stat[1]}` : stat;
-        if (!hoistedDeclBuilders.has(key) || hoistedEmitted.has(key)) continue;
-        hoistedEmitted.add(key);
-        vars.push(hoistedDeclBuilders.get(key)!());
-      }
-    }
 
     // Per-rule local hoisting: stats used 2+ times within this single rule
     if (reorderedStat) {
@@ -1072,17 +1063,9 @@ export class EmitterAST {
       }
     }
 
-    // Only wrap in if-block when 2+ rules share the same condition
-    return groups.map(g => {
-      if (g.flagCondition && g.rules.length < 2) {
-        return {
-          flagCondition: null,
-          flagConditionKey: null,
-          rules: [{ original: g.rules[0].original, stripped: g.rules[0].original }],
-        };
-      }
-      return g;
-    });
+    // Keep all flag groups — even single-rule ones — because the flag condition
+    // is a property check that must happen before unid bail
+    return groups;
   }
 
   private extractGroupableCondition(expr: ExprNode | null): { condition: ExprNode; rest: ExprNode | null } | null {
