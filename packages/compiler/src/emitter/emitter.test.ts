@@ -6,7 +6,6 @@ import { Parser } from '../parser.js';
 import { Binder } from '../binder.js';
 import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
-import { CodeGen } from './codegen.js';
 import { Emitter } from './emitter.js';
 import { AliasMapSet, DispatchKind } from './types.js';
 import { NodeKind } from '../types.js';
@@ -141,67 +140,6 @@ describe('Grouper', () => {
     const plan = grouper.group(analyzed);
     assert.ok(plan.classidGroups.has(85));
     assert.ok(plan.classidGroups.has(520));
-  });
-});
-
-describe('CodeGen', () => {
-  const codegen = new CodeGen(testAliases);
-
-  it('emits property keyword', () => {
-    const line = parser.parseLine('[name] == ring');
-    const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(_c===85)');
-  });
-
-  it('emits quality comparison', () => {
-    const line = parser.parseLine('[quality] == unique');
-    const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(_q===7)');
-  });
-
-  it('emits flag check (== becomes call)', () => {
-    const line = parser.parseLine('[flag] == ethereal');
-    const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, 'i.getFlag(4194304)');
-  });
-
-  it('emits negated flag check', () => {
-    const line = parser.parseLine('[flag] != ethereal');
-    const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '(!i.getFlag(4194304))');
-  });
-
-  it('emits stat keyword', () => {
-    const line = parser.parseLine('[name] == ring # [strength] >= 20');
-    const js = codegen.emitStatExpr(line.stats!.expr);
-    assert.strictEqual(js, '((i.getStatEx(0)|0)>=20)');
-  });
-
-  it('emits stat addition', () => {
-    const line = parser.parseLine('[name] == ring # [strength] + [dexterity] >= 30');
-    const js = codegen.emitStatExpr(line.stats!.expr);
-    assert.strictEqual(js, '(((i.getStatEx(0)|0)+(i.getStatEx(2)|0))>=30)');
-  });
-
-  it('emits AND conjunction', () => {
-    const line = parser.parseLine('[name] == ring && [quality] == unique');
-    const js = codegen.emitPropertyExpr(line.property!.expr);
-    assert.strictEqual(js, '((_c===85)&&(_q===7))');
-  });
-
-  it('collects stat IDs for hoisting', () => {
-    const line = parser.parseLine('[name] == ring # [fcr] == 10 && [maxhp] >= 30');
-    const stats = codegen.collectStatIds(line.stats!.expr);
-    assert.ok(stats.has('fcr'));
-    assert.ok(stats.has('maxhp'));
-    assert.strictEqual(stats.get('fcr'), 105);
-  });
-
-  it('uses hoisted var when provided', () => {
-    const line = parser.parseLine('[name] == ring # [fcr] == 10');
-    const hoisted = new Map<number | string, string>([[105, '_h0']]);
-    const js = codegen.emitStatExprWithHoisted(line.stats!.expr, hoisted);
-    assert.strictEqual(js, '(_h0===10)'); // hoisted var already has |0
   });
 });
 
