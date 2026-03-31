@@ -115,12 +115,15 @@ export class EmitterAST {
       id: '_f',
       init: array(this.fileTable.map(f => literal(f))),
     }]));
-    // Packed source table: each entry is (fileId << 16 | lineNumber).
-    // Single flat smi array — no inner arrays, guaranteed PACKED_SMI_ELEMENTS.
-    // Decode: file = _f[_s[id] >>> 16], line = _s[id] & 0xFFFF
+    // Packed source table: file ID in low bits, line number in high bits.
+    // Bit width for file ID is dynamic based on actual file count.
+    // encode: (lineNumber << _b) | fileId
+    // decode: file = _f[e & mask], line = e >>> _b
+    const fileBits = Math.max(1, Math.ceil(Math.log2(this.fileTable.length + 1)));
+    body.push(varDecl('const', [{ id: '_b', init: literal(fileBits) }]));
     body.push(varDecl('const', [{
       id: '_s',
-      init: array(this.sourceTable.map(([f, l]) => literal((f << 16) | l))),
+      init: array(this.sourceTable.map(([f, l]) => literal((l << fileBits) | f))),
     }]));
 
     // _mq array
@@ -681,11 +684,12 @@ export class EmitterAST {
     const result = cond(bin('>', ident('r'), literal(0)), literal(1),
       cond(bin('<', ident('r'), literal(0)), literal(-1), literal(0)));
 
-    // Decode: file = _f[e >>> 16], line = e & 0xFFFF
+    // Decode: file = _f[e & ((1 << _b) - 1)], line = e >>> _b
+    const fileMask = bin('-', bin('<<', literal(1), ident('_b')), literal(1));
     const fileExpr = cond(ident('e'),
-      memberComputed(ident('_f'), bin('>>>', ident('e'), literal(16))),
+      memberComputed(ident('_f'), bin('&', ident('e'), fileMask)),
       literal(null));
-    const lineExpr = bin('&', ident('e'), literal(0xFFFF));
+    const lineExpr = bin('>>>', ident('e'), ident('_b'));
 
     if (this.config.kolbotCompat) {
       body.push(returnStmt(object([
