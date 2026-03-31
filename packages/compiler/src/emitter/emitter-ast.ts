@@ -42,6 +42,7 @@ export class EmitterAST {
   private fileTable: string[] = [];
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
+  private localVarCounter = 0;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -252,6 +253,9 @@ export class EmitterAST {
     body.push(switchStmt(disc, cases));
   }
 
+  private static readonly MIN_QUALITY = 1;
+  private static readonly MAX_QUALITY = 8;
+
   private buildQualityDispatch(
     qualityMap: Map<number | null, GroupedRule[]>,
     mqSources: string[],
@@ -261,25 +265,143 @@ export class EmitterAST {
     const fixedQualities = [...qualityMap.entries()].filter(([q]) => q !== null);
     const anyQuality = qualityMap.get(null);
 
-    if (fixedQualities.length > 0) {
+    // Partition any-quality rules into range-quality and true catch-all
+    const rangeGroups: { qualities: number[]; rules: GroupedRule[] }[] = [];
+    const trueCatchAll: GroupedRule[] = [];
+
+    if (anyQuality) {
+      // Group consecutive rules with the same quality range together
+      for (const rule of anyQuality) {
+        const extracted = this.extractQualityRange(rule.residualProperty);
+        if (extracted) {
+          const strippedRule = { ...rule, residualProperty: extracted.rest };
+          const key = extracted.qualities.join(',');
+          const last = rangeGroups[rangeGroups.length - 1];
+          if (last && last.qualities.join(',') === key) {
+            last.rules.push(strippedRule);
+          } else {
+            rangeGroups.push({ qualities: extracted.qualities, rules: [strippedRule] });
+          }
+        } else {
+          trueCatchAll.push(rule);
+        }
+      }
+    }
+
+    // Merge range-quality rules into the quality map: add them to each matching quality bucket
+    const mergedMap = new Map<number, GroupedRule[]>();
+    for (const [quality, rules] of fixedQualities) {
+      mergedMap.set(quality!, [...rules]);
+    }
+    for (const group of rangeGroups) {
+      for (const q of group.qualities) {
+        if (!mergedMap.has(q)) mergedMap.set(q, []);
+        mergedMap.get(q)!.push(...group.rules);
+      }
+    }
+
+    if (mergedMap.size > 0) {
       const cases: ESTree.SwitchCase[] = [];
-      for (const [quality, rules] of fixedQualities) {
+
+      // Group cases with identical rule sets (for fallthrough dedup)
+      const caseEntries: { key: number; rules: GroupedRule[] }[] = [];
+      for (const [quality, rules] of mergedMap) {
+        caseEntries.push({ key: quality, rules });
+      }
+      const caseGroups: { keys: number[]; rules: GroupedRule[] }[] = [];
+      const bodyMap = new Map<string, number>();
+      for (const entry of caseEntries) {
+        const sig = entry.rules.map(r => r.source).join('|');
+        const existing = bodyMap.get(sig);
+        if (existing !== undefined) {
+          caseGroups[existing].keys.push(entry.key);
+        } else {
+          bodyMap.set(sig, caseGroups.length);
+          caseGroups.push({ keys: [entry.key], rules: entry.rules });
+        }
+      }
+
+      for (const group of caseGroups) {
         const caseBody = isTier
-          ? this.buildTierGroup(rules)
-          : this.buildHoistedGroup(rules, mqSources);
-        cases.push(switchCase(literal(quality!), [block([...caseBody, breakStmt()])]));
+          ? this.buildTierGroup(group.rules)
+          : this.buildHoistedGroup(group.rules, mqSources);
+        for (let i = 0; i < group.keys.length - 1; i++) {
+          cases.push(switchCase(literal(group.keys[i]), []));
+        }
+        cases.push(switchCase(literal(group.keys[group.keys.length - 1]),
+          [block([...caseBody, breakStmt()])]));
       }
       stmts.push(switchStmt(ident('_q'), cases));
     }
 
-    if (anyQuality && anyQuality.length > 0) {
+    if (trueCatchAll.length > 0) {
       const groupStmts = isTier
-        ? this.buildTierGroup(anyQuality)
-        : this.buildHoistedGroup(anyQuality, mqSources);
+        ? this.buildTierGroup(trueCatchAll)
+        : this.buildHoistedGroup(trueCatchAll, mqSources);
       stmts.push(...groupStmts);
     }
 
     return stmts;
+  }
+
+  private extractQualityRange(expr: ExprNode | null): { qualities: number[]; rest: ExprNode | null } | null {
+    if (!expr) return null;
+
+    // Direct quality comparison: [quality] <= 3, [quality] >= 4, etc.
+    if (expr.kind === NodeKind.BinaryExpr
+      && expr.left.kind === NodeKind.KeywordExpr
+      && expr.left.name === 'quality'
+      && (expr.op === '<=' || expr.op === '>=' || expr.op === '<' || expr.op === '>')) {
+      const value = this.resolveQualityValue(expr.right);
+      if (value === null) return null;
+      const qualities = this.expandQualityRange(expr.op, value);
+      if (!qualities) return null;
+      return { qualities, rest: null };
+    }
+
+    // Quality comparison as part of AND: [quality] <= 3 && [flag] != ethereal
+    if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
+      const leftRange = this.extractQualityRange(expr.left);
+      if (leftRange) {
+        const rest = leftRange.rest
+          ? { ...expr, left: leftRange.rest } as ExprNode
+          : expr.right;
+        return { qualities: leftRange.qualities, rest };
+      }
+      const rightRange = this.extractQualityRange(expr.right);
+      if (rightRange) {
+        const rest = rightRange.rest
+          ? { ...expr, right: rightRange.rest } as ExprNode
+          : expr.left;
+        return { qualities: rightRange.qualities, rest };
+      }
+    }
+
+    return null;
+  }
+
+  private resolveQualityValue(expr: ExprNode): number | null {
+    if (expr.kind === NodeKind.NumberLiteral) return expr.value;
+    if (expr.kind === NodeKind.Identifier) {
+      const map = this.config.aliases.quality;
+      if (map && expr.name in map) return map[expr.name];
+    }
+    return null;
+  }
+
+  private expandQualityRange(op: string, value: number): number[] | null {
+    let low: number, high: number;
+    switch (op) {
+      case '<=': low = EmitterAST.MIN_QUALITY; high = value; break;
+      case '<':  low = EmitterAST.MIN_QUALITY; high = value - 1; break;
+      case '>=': low = value; high = EmitterAST.MAX_QUALITY; break;
+      case '>':  low = value + 1; high = EmitterAST.MAX_QUALITY; break;
+      default: return null;
+    }
+    if (low > high) return null;
+    const result: number[] = [];
+    for (let i = low; i <= high; i++) result.push(i);
+    return result;
   }
 
   private buildHoistedGroup(rules: GroupedRule[], mqSources: string[]): ESTree.Statement[] {
@@ -315,9 +437,9 @@ export class EmitterAST {
       }
     }
 
-    // Build hoisted var map (declarations emitted later)
+    // Build hoisted var map and lazy declaration builders
     const hoisted = new Map<number | string, string>();
-    const hoistedDecls: ESTree.Statement[] = [];
+    const hoistedDeclBuilders = new Map<number | string, () => ESTree.Statement>();
     let varIdx = 0;
     for (const [name, count] of statFreq) {
       if (count >= 2) {
@@ -327,15 +449,18 @@ export class EmitterAST {
         if (hoisted.has(key)) continue;
         const varName = `_h${varIdx++}`;
         hoisted.set(key, varName);
-        const getStatArgs = Array.isArray(stat)
-          ? [literal(stat[0]), literal(stat[1])]
-          : [literal(stat)];
-        hoistedDecls.push(varDecl('const', [{
-          id: varName,
-          init: bin('|', call(member(ident('i'), 'getStatEx'), getStatArgs), literal(0)),
-        }]));
+        hoistedDeclBuilders.set(key, () => {
+          const getStatArgs = Array.isArray(stat)
+            ? [literal(stat[0]), literal(stat[1])]
+            : [literal(stat)];
+          return varDecl('const', [{
+            id: varName,
+            init: bin('|', call(member(ident('i'), 'getStatEx'), getStatArgs), literal(0)),
+          }]);
+        });
       }
     }
+    const hoistedEmitted = new Set<number | string>();
 
     // Group consecutive rules by shared flag/property condition
     const groups = this.groupBySharedConditionAST(alive);
@@ -363,16 +488,13 @@ export class EmitterAST {
       if (magicalRules.length > 0) magicalGroups.push({ ...group, rules: magicalRules });
     }
 
-    // Hoisted vars first (shared across base + magical rules)
-    stmts.push(...hoistedDecls);
-
-    // Base-stat rules with chaining
+    // Base-stat rules with chaining (hoisted vars emitted lazily per rule)
     let pendingBaseBlocks: ASTRuleBlock[] = [];
     for (const group of baseGroups) {
       const blocks: ASTRuleBlock[] = [];
       for (const rule of group.rules) {
         const effective = group.flagCondition ? rule.stripped : rule.original;
-        blocks.push(this.buildCheckRuleBlock(effective, mqSources, hoisted));
+        blocks.push(this.buildCheckRuleBlock(effective, mqSources, hoisted, hoistedDeclBuilders, hoistedEmitted));
       }
       if (group.flagCondition) {
         stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
@@ -396,7 +518,7 @@ export class EmitterAST {
         for (const rule of group.rules) {
           const effective = group.flagCondition ? rule.stripped : rule.original;
           const stripped = this.stripIdentifiedCheck(effective);
-          blocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted));
+          blocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted, hoistedDeclBuilders, hoistedEmitted));
         }
         if (group.flagCondition) {
           stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
@@ -683,6 +805,8 @@ export class EmitterAST {
     rule: GroupedRule,
     mqSources: string[],
     hoisted?: Map<number | string, string>,
+    hoistedDeclBuilders?: Map<number | string, () => ESTree.Statement>,
+    hoistedEmitted?: Set<number | string>,
   ): ASTRuleBlock {
     const comment = this.comments
       ? `${rule.source}${rule.line.comment ? ' — ' + rule.line.comment.trim() : ''}`
@@ -699,6 +823,19 @@ export class EmitterAST {
     const vars: ESTree.Statement[] = [];
     const exprHoisted = new Map<number | string, string>(hoisted ?? []);
 
+    // Lazy group-level hoisted var emission: emit declarations for vars this rule needs
+    if (reorderedStat && hoistedDeclBuilders && hoistedEmitted) {
+      const needed = this.codegen.collectStatIds(reorderedStat);
+      for (const [name] of needed) {
+        const stat = this.config.aliases.stat[name];
+        if (stat === undefined) continue;
+        const key = Array.isArray(stat) ? `${stat[0]}_${stat[1]}` : stat;
+        if (!hoistedDeclBuilders.has(key) || hoistedEmitted.has(key)) continue;
+        hoistedEmitted.add(key);
+        vars.push(hoistedDeclBuilders.get(key)!());
+      }
+    }
+
     // Per-rule local hoisting: stats used 2+ times within this single rule
     if (reorderedStat) {
       const freq = new Map<string, number>();
@@ -712,7 +849,7 @@ export class EmitterAST {
         if (typeof numStat === 'number' && isNaN(numStat)) continue;
         const key = Array.isArray(numStat) ? `${numStat[0]}_${numStat[1]}` : numStat;
         if (exprHoisted.has(key)) continue;
-        const varName = `_l${exprHoisted.size}`;
+        const varName = `_l${this.localVarCounter++}`;
         exprHoisted.set(key, varName);
         const getStatArgs = Array.isArray(numStat)
           ? [literal(numStat[0]), literal(numStat[1])]
@@ -826,17 +963,26 @@ export class EmitterAST {
 
       stmts.push(...allVars);
 
-      // Build the if body
+      // Build the if body, skip dead code after unconditional return
       const ifBody: ESTree.Statement[] = [];
       let elseBody: ESTree.Statement[] | null = null;
+      let ifTerminated = false;
+      let elseTerminated = false;
       for (const entry of entries) {
-        const target = entry.isElse ? (elseBody = []) : ifBody;
+        const isElse = entry.isElse;
+        const target = isElse ? (elseBody = elseBody ?? []) : ifBody;
+        const terminated = isElse ? elseTerminated : ifTerminated;
+        if (terminated) continue;
         if (entry.comment) {
           const first = entry.body[0];
           if (first) withLeadingComment(first, ` ${entry.comment}`);
-          target.push(...entry.body);
-        } else {
-          target.push(...entry.body);
+        }
+        target.push(...entry.body);
+        // Check if this entry ends with a return (makes subsequent entries dead)
+        const last = entry.body[entry.body.length - 1];
+        if (last?.type === 'ReturnStatement') {
+          if (isElse) elseTerminated = true;
+          else ifTerminated = true;
         }
       }
 
