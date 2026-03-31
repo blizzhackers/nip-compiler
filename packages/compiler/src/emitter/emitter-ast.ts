@@ -359,6 +359,23 @@ export class EmitterAST {
       return { qualities, rest: null };
     }
 
+    // OR of quality equalities: [quality] == rare || [quality] == unique
+    if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
+      const qualities: number[] = [];
+      const branches = this.flattenOr(expr);
+      const allQuality = branches.every(b => {
+        if (b.kind === NodeKind.BinaryExpr && b.op === '=='
+          && b.left.kind === NodeKind.KeywordExpr && b.left.name === 'quality') {
+          const v = this.resolveQualityValue(b.right);
+          if (v !== null) { qualities.push(v); return true; }
+        }
+        return false;
+      });
+      if (allQuality && qualities.length > 0) {
+        return { qualities, rest: null };
+      }
+    }
+
     // Quality comparison as part of AND: [quality] <= 3 && [flag] != ethereal
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
       const leftRange = this.extractQualityRange(expr.left);
