@@ -37,13 +37,12 @@ export class EmitterAST {
   private grouper: Grouper;
   private codegen: CodeGenAST;
   private comments: boolean;
+  private sourceTable: [number, number][] = [];
   private sourceIdMap = new Map<string, number>();
   private fileTable: string[] = [];
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
   private localVarCounter = 0;
-  private helperFunctions: ESTree.Statement[] = [];
-  private helperCounter = 0;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -62,20 +61,19 @@ export class EmitterAST {
     return id;
   }
 
-  // Encode source location as a single integer: (fileId << 16) | lineNumber.
-  // This eliminates the _s lookup table — the return value IS the source info.
-  // Decode: file = _f[value >>> 16], line = value & 0xFFFF
-  private getSourceEncoded(source: string): number {
-    let encoded = this.sourceIdMap.get(source);
-    if (encoded === undefined) {
+  private getSourceId(source: string): number {
+    let id = this.sourceIdMap.get(source);
+    if (id === undefined) {
+      id = this.sourceTable.length;
       const [file, lineNum] = source.split('#');
-      encoded = (this.getFileId(file) << 16) | parseInt(lineNum);
-      this.sourceIdMap.set(source, encoded);
+      this.sourceTable.push([this.getFileId(file), parseInt(lineNum)]);
+      this.sourceIdMap.set(source, id);
     }
-    return encoded;
+    return id;
   }
 
   emitAST(files: NipFileNode[]): ESTree.Program {
+    this.sourceTable = [];
     this.sourceIdMap.clear();
     this.fileTable = [];
     this.fileIdMap.clear();
@@ -102,12 +100,8 @@ export class EmitterAST {
       body.push(varDecl('const', [{ id: 'getBaseStat', init: member(ident('helpers'), 'getBaseStat') }]));
     }
 
-    // _ci function (helper functions emitted first — they're populated during buildCi)
-    this.helperFunctions = [];
-    this.helperCounter = 0;
-    const ciFunc = this.buildCiFunction(plan, mqRules.map(m => m.source));
-    body.push(...this.helperFunctions);
-    body.push(ciFunc);
+    // _ci function
+    body.push(this.buildCiFunction(plan, mqRules.map(m => m.source)));
 
     // checkItem wrapper
     body.push(this.buildCheckItemFunction());
@@ -121,8 +115,13 @@ export class EmitterAST {
       id: '_f',
       init: array(this.fileTable.map(f => literal(f))),
     }]));
-    // _s table eliminated — source info is encoded directly in return values:
-    // positive = match, negative = unid bail. Decode: file = _f[|value| >>> 16], line = |value| & 0xFFFF
+    // Packed source table: each entry is (fileId << 16 | lineNumber).
+    // Single flat smi array — no inner arrays, guaranteed PACKED_SMI_ELEMENTS.
+    // Decode: file = _f[_s[id] >>> 16], line = _s[id] & 0xFFFF
+    body.push(varDecl('const', [{
+      id: '_s',
+      init: array(this.sourceTable.map(([f, l]) => literal((f << 16) | l))),
+    }]));
 
     // _mq array
     if (mqRules.length > 0) {
@@ -246,41 +245,12 @@ export class EmitterAST {
 
     const cases: ESTree.SwitchCase[] = [];
     for (const group of caseGroups) {
-      let caseBody: ESTree.Statement[];
-
-      // V8's TurboFan JIT has a bytecode size limit (~100KB). Our _ci function
-      // can be 300K+ with many NIP rules. By extracting each classid's dispatch
-      // into its own function, _ci stays small enough for TurboFan (jump tables,
-      // inlining) and hot helpers get individually optimized.
-      const stmtsJson = JSON.stringify(group.stmts);
-      if (stmtsJson.length > 2000) {
-        const helperName = `_d${this.helperCounter++}`;
-        this.helperFunctions.push(fnDecl(helperName, ['i', '_id'], [
-          varDecl('const', [
-            { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },
-            { id: '_q', init: bin('|', member(ident('i'), 'quality'), literal(0)) },
-            { id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) },
-          ]),
-          ...group.stmts,
-          returnStmt(literal(0)),
-        ]));
-        // Call helper; if it returned non-zero (match or maybe), propagate it
-        const resultVar = `_r${this.helperCounter}`;
-        caseBody = [
-          varDecl('const', [{ id: resultVar, init: call(ident(helperName), [ident('i'), ident('_id')]) }]),
-          ifStmt(ident(resultVar), [returnStmt(ident(resultVar))]),
-          breakStmt(),
-        ];
-      } else {
-        caseBody = [...group.stmts, breakStmt()];
-      }
-
       // Fall-through labels
       for (let i = 0; i < group.keys.length - 1; i++) {
         cases.push(switchCase(literal(group.keys[i]), []));
       }
       cases.push(switchCase(literal(group.keys[group.keys.length - 1]),
-        [block(caseBody)]));
+        [block([...group.stmts, breakStmt()])]));
     }
 
     body.push(switchStmt(disc, cases));
@@ -377,9 +347,6 @@ export class EmitterAST {
     return stmts;
   }
 
-  // Quality is an enum (1=lowquality..8=crafted). Range checks like [quality] <= superior
-  // become individual switch case labels instead of if(_q <= 3), because the JIT
-  // generates a jump table for dense integer switches.
   private extractQualityRange(expr: ExprNode | null): { qualities: number[]; rest: ExprNode | null } | null {
     if (!expr) return null;
 
@@ -460,9 +427,7 @@ export class EmitterAST {
   private buildHoistedGroup(rules: GroupedRule[], mqSources: string[]): ESTree.Statement[] {
     const stmts: ESTree.Statement[] = [];
 
-    // Sort rules for optimal dispatch:
-    // 1. Property-only rules first (no stat checks = fast unconditional match)
-    // 2. Group by flag condition so consecutive rules share the same getFlag() call
+    // Sort: property-only first, then group by flag condition for better dedup
     const sorted = [...rules].sort((a, b) => {
       const aHasStats = a.statExpr !== null ? 1 : 0;
       const bHasStats = b.statExpr !== null ? 1 : 0;
@@ -474,8 +439,7 @@ export class EmitterAST {
       return 0;
     });
 
-    // Dead code elimination: a rule with no residual property AND no stats
-    // is an unconditional match — everything after it is unreachable
+    // Dead code elimination: unconditional match makes everything after unreachable
     const alive: GroupedRule[] = [];
     for (const rule of sorted) {
       alive.push(rule);
@@ -518,16 +482,10 @@ export class EmitterAST {
     // Group consecutive rules by shared flag/property condition
     const groups = this.groupBySharedConditionAST(alive);
 
-    // Unid bail ordering: in the original NTIP, the entire property section
-    // (classid, quality, flags, class, level) is evaluated as one function.
-    // If any property check fails, the rule is skipped — no unid bail.
-    // The unid bail ("maybe, ID this item") only fires when ALL property
-    // conditions pass but magical stats can't be verified because unidentified.
-    //
-    // Flagged groups (eth/runeword/etc.) are self-contained: the flag check
-    // is a property condition, so the unid bail goes INSIDE the if(flag) block.
-    // Unflagged groups have all property conditions already dispatched (classid,
-    // quality) so their unid bail is at the current scope.
+    // Emit groups. Flagged groups are self-contained (base + unid bail + magical
+    // all inside the if(flag) block) because the flag is a property condition that
+    // must pass before unid bail fires. Unflagged groups accumulate and get a
+    // shared unid bail at the end.
     stmts.push(...hoistedDecls);
     let pendingBaseBlocks: ASTRuleBlock[] = [];
     let pendingMagicalBlocks: ASTRuleBlock[] = [];
@@ -537,8 +495,8 @@ export class EmitterAST {
       stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
       pendingBaseBlocks = [];
       if (pendingMagicalBlocks.length > 0 && pendingMagicalSource) {
-        const encoded = this.getSourceEncoded(pendingMagicalSource);
-        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-encoded))]));
+        const maybeId = this.getSourceId(pendingMagicalSource);
+        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
         stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
         pendingMagicalBlocks = [];
         pendingMagicalSource = null;
@@ -571,8 +529,8 @@ export class EmitterAST {
         innerStmts.push(...this.chainBlocksAST(baseBlocks));
 
         if (magicalRules.length > 0 && firstMagical) {
-          const encoded = this.getSourceEncoded(firstMagical);
-          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-encoded))]));
+          const maybeId = this.getSourceId(firstMagical);
+          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
           const magicBlocks = magicalRules.map(r => {
             const stripped = this.stripIdentifiedCheck(r.stripped);
             return this.buildCheckRuleBlock(stripped, mqSources, hoisted);
@@ -629,7 +587,7 @@ export class EmitterAST {
 
     const mqIdx = mqSources.indexOf(rule.source);
     const hasMq = mqIdx !== -1;
-    const matchStmt = returnStmt(literal(this.getSourceEncoded(rule.source)));
+    const matchStmt = returnStmt(literal(this.getSourceId(rule.source) + 1));
     const sourceComment = `${rule.source}${rule.line.comment ? ' — ' + rule.line.comment.trim() : ''}`;
 
     const wrapComment = (s: ESTree.Statement): ESTree.Statement => {
@@ -642,8 +600,8 @@ export class EmitterAST {
       return this.comments ? withLeadingComment(s, ` ${sourceComment}`) : s;
     };
 
-    const encoded = this.getSourceEncoded(rule.source);
-    const maybeStmt: ESTree.Statement = exprStmt(assign(ident('_r'), literal(-encoded)));
+    const maybeId = this.getSourceId(rule.source) + 1;
+    const maybeStmt: ESTree.Statement = exprStmt(assign(ident('_r'), literal(-(maybeId))));
 
     if (conditions.length > 0 && hasStats) {
       const propCond = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
@@ -714,28 +672,25 @@ export class EmitterAST {
         cond(bin('<', ident('r'), literal(0)), literal(-1), literal(0)))),
     ]));
 
-    // Verbose return: decode source info from r directly.
-    // r is encoded as (fileId << 16 | lineNumber), sign indicates match vs unid bail.
-    // const v = r > 0 ? r : -r;  (absolute value)
+    // Verbose return: _s[id] is packed as (fileId << 16 | lineNumber)
     body.push(varDecl('const', [
-      { id: 'v', init: cond(bin('>', ident('r'), literal(0)), ident('r'), unary('-', ident('r'))) },
+      { id: 'id', init: bin('-', cond(bin('>', ident('r'), literal(0)), ident('r'), unary('-', ident('r'))), literal(1)) },
+      { id: 'e', init: cond(bin('>=', ident('id'), literal(0)), memberComputed(ident('_s'), ident('id')), literal(0)) },
     ]));
 
     const result = cond(bin('>', ident('r'), literal(0)), literal(1),
       cond(bin('<', ident('r'), literal(0)), literal(-1), literal(0)));
 
-    // file = _f[v >>> 16], line = v & 0xFFFF
-    const fileExpr = cond(ident('v'),
-      memberComputed(ident('_f'), bin('>>>', ident('v'), literal(16))),
+    // Decode: file = _f[e >>> 16], line = e & 0xFFFF
+    const fileExpr = cond(ident('e'),
+      memberComputed(ident('_f'), bin('>>>', ident('e'), literal(16))),
       literal(null));
-    const lineExpr = cond(ident('v'),
-      bin('&', ident('v'), literal(0xFFFF)),
-      literal(0));
+    const lineExpr = bin('&', ident('e'), literal(0xFFFF));
 
     if (this.config.kolbotCompat) {
       body.push(returnStmt(object([
         { key: 'result', value: result },
-        { key: 'line', value: cond(ident('v'),
+        { key: 'line', value: cond(ident('e'),
           bin('+', bin('+', fileExpr, literal(' #')), lineExpr),
           literal(null)) },
       ])));
@@ -743,7 +698,7 @@ export class EmitterAST {
       body.push(returnStmt(object([
         { key: 'result', value: result },
         { key: 'file', value: fileExpr },
-        { key: 'line', value: lineExpr },
+        { key: 'line', value: cond(ident('e'), lineExpr, literal(0)) },
       ])));
     }
 
@@ -928,7 +883,7 @@ export class EmitterAST {
 
     const mqIdx = mqSources.indexOf(rule.source);
     const hasMq = mqIdx !== -1;
-    const matchStmt = returnStmt(literal(this.getSourceEncoded(rule.source)));
+    const matchStmt = returnStmt(literal(this.getSourceId(rule.source) + 1));
 
     let condition: ESTree.Expression | null = null;
     const body: ESTree.Statement[] = [];
