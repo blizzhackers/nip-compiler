@@ -1,6 +1,6 @@
 # @blizzhackers/nip-compiler
 
-NIP file lexer, parser, binder, and code emitter for Diablo 2 item filtering. Compiles `.nip` pickit rules into optimized JavaScript with switch dispatch — 36x faster than kolbot's runtime `NTItemParser`.
+NIP file lexer, parser, binder, and code emitter for Diablo 2 item filtering. Compiles `.nip` pickit rules into optimized JavaScript via ESTree AST + escodegen — **50x faster** than kolbot's runtime `NTItemParser`.
 
 ## Install
 
@@ -82,21 +82,26 @@ const js = emitter.emit([ast]);
   Grouper   → Groups rules by dispatch key into quality buckets
     │
     ▼
-  Emitter   → Generates JavaScript with switch dispatch, hoisted stats,
-              condition grouping, if/else chains, merged case labels
+  Emitter   → ESTree AST via emitter-ast.ts + codegen-ast.ts
+    │
+    ▼
+  escodegen → JavaScript code + source maps from AST node .loc
 ```
 
 ### Optimizations in emitted code
 
-- **Switch dispatch** on classid and type (O(1) lookup vs O(n) scan)
-- **Quality sub-dispatch** within each classid/type bucket
-- **Stat hoisting** — shared `getStatEx` calls lifted to top of quality group
-- **Condition grouping** — rules sharing `[quality] <= 3` etc. under one `if` block
-- **Complementary if/else** — `<40` / `>=40` pairs, flag/!flag inversions
-- **Merged case labels** — OR dispatch `[name] == X || [name] == Y` shares one body
-- **Unid bail** — skip magical stat checks on unidentified items, return "maybe"
-- **Selectivity reordering** — `==` checks before `>=` for faster short-circuit
-- **`const`/`let`** — hints to SpiderMonkey JIT for register allocation
+- **Switch dispatch** on classid and type (O(1) jump table vs O(n) scan)
+- **Quality sub-dispatch** — quality ranges (`<= superior`) expanded to `case 1: case 2: case 3:` labels; OR conditions likewise
+- **Function splitting** — each classid dispatch body is its own function, keeping `_ci` small enough for V8's TurboFan JIT (jump tables, inlining). Without this, `_ci` exceeds TurboFan's bytecode limit and stays on Maglev
+- **Stat hoisting** — `getStatEx` calls used 2+ times across rules lifted to `const _hN` at group scope; per-rule local hoisting via `_lN` for stats used 2+ times within one expression
+- **Lazy hoisted vars** — declarations emitted just before the first rule that uses them, so early-returning rules skip unnecessary `getStatEx` calls
+- **Flag condition grouping** — consecutive rules sharing a flag condition (`[flag] == ethereal`) grouped under one `if(getFlag())` block
+- **Complementary if/else** — `flag`/`!flag` and `<`/`>=` pairs chained as if/else instead of separate if blocks
+- **Merged case labels** — classids with identical rule bodies share one case body with fallthrough labels
+- **Unid bail** — skip magical stat checks on unidentified items, return "maybe". Only fires after ALL property conditions (including flags) pass, matching the original NTIP behavior. Base stats (defense, damage, durability) are always readable and evaluated even on unid items
+- **Selectivity reordering** — AND conditions sorted by selectivity (`==` first, then `!=`, ranges, OR) for faster short-circuit
+- **Dead code elimination** — unconditional matches cut unreachable rules; consecutive returns after a match are pruned
+- **`const`/`let`** — hints to JIT for register allocation; `|0` coercion for int32 smi path
 
 ## Kolbot integration
 
@@ -115,4 +120,4 @@ The compiled module calls `NTIP.addCompiled()` on load. `CheckItem`, `GetTier`, 
 npm test                    # 335 tests
 ```
 
-Cross-validated against the original `NTItemParser.js` across 31,320 item combinations — 0 missed picks, 0 false positives.
+Cross-validated against the original `NTItemParser.js` with 110 test items covering quality ranges, eth/non-eth complement chains, unidentified items with base stats, rune ranges, runewords, prefix/suffix, and edge cases — 0 mismatches.

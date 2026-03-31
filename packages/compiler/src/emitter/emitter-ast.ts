@@ -43,6 +43,8 @@ export class EmitterAST {
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
   private localVarCounter = 0;
+  private helperFunctions: ESTree.Statement[] = [];
+  private helperCounter = 0;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -100,8 +102,12 @@ export class EmitterAST {
       body.push(varDecl('const', [{ id: 'getBaseStat', init: member(ident('helpers'), 'getBaseStat') }]));
     }
 
-    // _ci function
-    body.push(this.buildCiFunction(plan, mqRules.map(m => m.source)));
+    // _ci function (helper functions emitted first — they're populated during buildCi)
+    this.helperFunctions = [];
+    this.helperCounter = 0;
+    const ciFunc = this.buildCiFunction(plan, mqRules.map(m => m.source));
+    body.push(...this.helperFunctions);
+    body.push(ciFunc);
 
     // checkItem wrapper
     body.push(this.buildCheckItemFunction());
@@ -242,12 +248,41 @@ export class EmitterAST {
 
     const cases: ESTree.SwitchCase[] = [];
     for (const group of caseGroups) {
+      let caseBody: ESTree.Statement[];
+
+      // V8's TurboFan JIT has a bytecode size limit (~100KB). Our _ci function
+      // can be 300K+ with many NIP rules. By extracting each classid's dispatch
+      // into its own function, _ci stays small enough for TurboFan (jump tables,
+      // inlining) and hot helpers get individually optimized.
+      const stmtsJson = JSON.stringify(group.stmts);
+      if (stmtsJson.length > 2000) {
+        const helperName = `_d${this.helperCounter++}`;
+        this.helperFunctions.push(fnDecl(helperName, ['i', '_id'], [
+          varDecl('const', [
+            { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },
+            { id: '_q', init: bin('|', member(ident('i'), 'quality'), literal(0)) },
+            { id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) },
+          ]),
+          ...group.stmts,
+          returnStmt(literal(0)),
+        ]));
+        // Call helper; if it returned non-zero (match or maybe), propagate it
+        const resultVar = `_r${this.helperCounter}`;
+        caseBody = [
+          varDecl('const', [{ id: resultVar, init: call(ident(helperName), [ident('i'), ident('_id')]) }]),
+          ifStmt(ident(resultVar), [returnStmt(ident(resultVar))]),
+          breakStmt(),
+        ];
+      } else {
+        caseBody = [...group.stmts, breakStmt()];
+      }
+
       // Fall-through labels
       for (let i = 0; i < group.keys.length - 1; i++) {
         cases.push(switchCase(literal(group.keys[i]), []));
       }
       cases.push(switchCase(literal(group.keys[group.keys.length - 1]),
-        [block([...group.stmts, breakStmt()])]));
+        [block(caseBody)]));
     }
 
     body.push(switchStmt(disc, cases));
@@ -344,6 +379,9 @@ export class EmitterAST {
     return stmts;
   }
 
+  // Quality is an enum (1=lowquality..8=crafted). Range checks like [quality] <= superior
+  // become individual switch case labels instead of if(_q <= 3), because the JIT
+  // generates a jump table for dense integer switches.
   private extractQualityRange(expr: ExprNode | null): { qualities: number[]; rest: ExprNode | null } | null {
     if (!expr) return null;
 
@@ -424,7 +462,9 @@ export class EmitterAST {
   private buildHoistedGroup(rules: GroupedRule[], mqSources: string[]): ESTree.Statement[] {
     const stmts: ESTree.Statement[] = [];
 
-    // Sort: property-only first, then group by flag condition for better dedup
+    // Sort rules for optimal dispatch:
+    // 1. Property-only rules first (no stat checks = fast unconditional match)
+    // 2. Group by flag condition so consecutive rules share the same getFlag() call
     const sorted = [...rules].sort((a, b) => {
       const aHasStats = a.statExpr !== null ? 1 : 0;
       const bHasStats = b.statExpr !== null ? 1 : 0;
@@ -436,7 +476,8 @@ export class EmitterAST {
       return 0;
     });
 
-    // Dead code elimination: unconditional match makes everything after unreachable
+    // Dead code elimination: a rule with no residual property AND no stats
+    // is an unconditional match — everything after it is unreachable
     const alive: GroupedRule[] = [];
     for (const rule of sorted) {
       alive.push(rule);
@@ -479,10 +520,16 @@ export class EmitterAST {
     // Group consecutive rules by shared flag/property condition
     const groups = this.groupBySharedConditionAST(alive);
 
-    // Emit groups. Flagged groups are self-contained (base + unid bail + magical
-    // all inside the if(flag) block) because the flag is a property condition that
-    // must pass before unid bail fires. Unflagged groups accumulate and get a
-    // shared unid bail at the end.
+    // Unid bail ordering: in the original NTIP, the entire property section
+    // (classid, quality, flags, class, level) is evaluated as one function.
+    // If any property check fails, the rule is skipped — no unid bail.
+    // The unid bail ("maybe, ID this item") only fires when ALL property
+    // conditions pass but magical stats can't be verified because unidentified.
+    //
+    // Flagged groups (eth/runeword/etc.) are self-contained: the flag check
+    // is a property condition, so the unid bail goes INSIDE the if(flag) block.
+    // Unflagged groups have all property conditions already dispatched (classid,
+    // quality) so their unid bail is at the current scope.
     stmts.push(...hoistedDecls);
     let pendingBaseBlocks: ASTRuleBlock[] = [];
     let pendingMagicalBlocks: ASTRuleBlock[] = [];
