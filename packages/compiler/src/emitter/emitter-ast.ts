@@ -37,7 +37,6 @@ export class EmitterAST {
   private grouper: Grouper;
   private codegen: CodeGenAST;
   private comments: boolean;
-  private sourceTable: [number, number][] = [];
   private sourceIdMap = new Map<string, number>();
   private fileTable: string[] = [];
   private fileIdMap = new Map<string, number>();
@@ -63,19 +62,20 @@ export class EmitterAST {
     return id;
   }
 
-  private getSourceId(source: string): number {
-    let id = this.sourceIdMap.get(source);
-    if (id === undefined) {
-      id = this.sourceTable.length;
+  // Encode source location as a single integer: (fileId << 16) | lineNumber.
+  // This eliminates the _s lookup table — the return value IS the source info.
+  // Decode: file = _f[value >>> 16], line = value & 0xFFFF
+  private getSourceEncoded(source: string): number {
+    let encoded = this.sourceIdMap.get(source);
+    if (encoded === undefined) {
       const [file, lineNum] = source.split('#');
-      this.sourceTable.push([this.getFileId(file), parseInt(lineNum)]);
-      this.sourceIdMap.set(source, id);
+      encoded = (this.getFileId(file) << 16) | parseInt(lineNum);
+      this.sourceIdMap.set(source, encoded);
     }
-    return id;
+    return encoded;
   }
 
   emitAST(files: NipFileNode[]): ESTree.Program {
-    this.sourceTable = [];
     this.sourceIdMap.clear();
     this.fileTable = [];
     this.fileIdMap.clear();
@@ -121,10 +121,8 @@ export class EmitterAST {
       id: '_f',
       init: array(this.fileTable.map(f => literal(f))),
     }]));
-    body.push(varDecl('const', [{
-      id: '_s',
-      init: array(this.sourceTable.map(([f, l]) => array([literal(f), literal(l)]))),
-    }]));
+    // _s table eliminated — source info is encoded directly in return values:
+    // positive = match, negative = unid bail. Decode: file = _f[|value| >>> 16], line = |value| & 0xFFFF
 
     // _mq array
     if (mqRules.length > 0) {
@@ -539,8 +537,8 @@ export class EmitterAST {
       stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
       pendingBaseBlocks = [];
       if (pendingMagicalBlocks.length > 0 && pendingMagicalSource) {
-        const maybeId = this.getSourceId(pendingMagicalSource);
-        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+        const encoded = this.getSourceEncoded(pendingMagicalSource);
+        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-encoded))]));
         stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
         pendingMagicalBlocks = [];
         pendingMagicalSource = null;
@@ -573,8 +571,8 @@ export class EmitterAST {
         innerStmts.push(...this.chainBlocksAST(baseBlocks));
 
         if (magicalRules.length > 0 && firstMagical) {
-          const maybeId = this.getSourceId(firstMagical);
-          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+          const encoded = this.getSourceEncoded(firstMagical);
+          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-encoded))]));
           const magicBlocks = magicalRules.map(r => {
             const stripped = this.stripIdentifiedCheck(r.stripped);
             return this.buildCheckRuleBlock(stripped, mqSources, hoisted);
@@ -631,7 +629,7 @@ export class EmitterAST {
 
     const mqIdx = mqSources.indexOf(rule.source);
     const hasMq = mqIdx !== -1;
-    const matchStmt = returnStmt(literal(this.getSourceId(rule.source) + 1));
+    const matchStmt = returnStmt(literal(this.getSourceEncoded(rule.source)));
     const sourceComment = `${rule.source}${rule.line.comment ? ' — ' + rule.line.comment.trim() : ''}`;
 
     const wrapComment = (s: ESTree.Statement): ESTree.Statement => {
@@ -644,8 +642,8 @@ export class EmitterAST {
       return this.comments ? withLeadingComment(s, ` ${sourceComment}`) : s;
     };
 
-    const maybeId = this.getSourceId(rule.source) + 1;
-    const maybeStmt: ESTree.Statement = exprStmt(assign(ident('_r'), literal(-(maybeId))));
+    const encoded = this.getSourceEncoded(rule.source);
+    const maybeStmt: ESTree.Statement = exprStmt(assign(ident('_r'), literal(-encoded)));
 
     if (conditions.length > 0 && hasStats) {
       const propCond = conditions.length === 1 ? conditions[0] : conditions.reduce((a, b) => logical('&&', a, b));
@@ -716,28 +714,36 @@ export class EmitterAST {
         cond(bin('<', ident('r'), literal(0)), literal(-1), literal(0)))),
     ]));
 
-    // Verbose return
+    // Verbose return: decode source info from r directly.
+    // r is encoded as (fileId << 16 | lineNumber), sign indicates match vs unid bail.
+    // const v = r > 0 ? r : -r;  (absolute value)
     body.push(varDecl('const', [
-      { id: 'id', init: bin('-', cond(bin('>', ident('r'), literal(0)), ident('r'), unary('-', ident('r'))), literal(1)) },
-      { id: 'e', init: cond(bin('>=', ident('id'), literal(0)), memberComputed(ident('_s'), ident('id')), literal(null)) },
+      { id: 'v', init: cond(bin('>', ident('r'), literal(0)), ident('r'), unary('-', ident('r'))) },
     ]));
 
     const result = cond(bin('>', ident('r'), literal(0)), literal(1),
       cond(bin('<', ident('r'), literal(0)), literal(-1), literal(0)));
 
+    // file = _f[v >>> 16], line = v & 0xFFFF
+    const fileExpr = cond(ident('v'),
+      memberComputed(ident('_f'), bin('>>>', ident('v'), literal(16))),
+      literal(null));
+    const lineExpr = cond(ident('v'),
+      bin('&', ident('v'), literal(0xFFFF)),
+      literal(0));
+
     if (this.config.kolbotCompat) {
       body.push(returnStmt(object([
         { key: 'result', value: result },
-        { key: 'line', value: cond(ident('e'),
-          bin('+', bin('+', memberComputed(ident('_f'), memberComputed(ident('e'), literal(0))),
-            literal(' #')), memberComputed(ident('e'), literal(1))),
+        { key: 'line', value: cond(ident('v'),
+          bin('+', bin('+', fileExpr, literal(' #')), lineExpr),
           literal(null)) },
       ])));
     } else {
       body.push(returnStmt(object([
         { key: 'result', value: result },
-        { key: 'file', value: cond(ident('e'), memberComputed(ident('_f'), memberComputed(ident('e'), literal(0))), literal(null)) },
-        { key: 'line', value: cond(ident('e'), memberComputed(ident('e'), literal(1)), literal(0)) },
+        { key: 'file', value: fileExpr },
+        { key: 'line', value: lineExpr },
       ])));
     }
 
@@ -922,7 +928,7 @@ export class EmitterAST {
 
     const mqIdx = mqSources.indexOf(rule.source);
     const hasMq = mqIdx !== -1;
-    const matchStmt = returnStmt(literal(this.getSourceId(rule.source) + 1));
+    const matchStmt = returnStmt(literal(this.getSourceEncoded(rule.source)));
 
     let condition: ESTree.Expression | null = null;
     const body: ESTree.Statement[] = [];
