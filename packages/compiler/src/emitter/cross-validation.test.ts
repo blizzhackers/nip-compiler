@@ -419,6 +419,43 @@ const TEST_ITEMS: TestItem[] = [
   // --- Multiple classids/unknown ---
   { label: 'unknown classid 777', mock: { classid: 777, quality: qid('normal'), itemType: tid('sword') } },
   { label: 'unknown classid 888 unique', mock: { classid: 888, quality: qid('unique'), itemType: tid('armor'), stats: { [sidKey('defense')]: 200 } } },
+  // --- Realistic unid items (most items in-game are unid) ---
+  // Unid unique items — common drops you'd encounter
+  { label: 'unid unique ring', mock: { classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'), flags: 0 } },
+  { label: 'unid unique amulet', mock: { classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'), flags: 0 } },
+  { label: 'unid unique shako', mock: { classid: cid('shako'), quality: qid('unique'), itemType: tid('helm'), flags: 0 } },
+  { label: 'unid unique vipermagi', mock: { classid: cid('serpentskinarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0 } },
+  { label: 'unid unique phaseblade', mock: { classid: cid('phaseblade'), quality: qid('unique'), itemType: tid('sword'), flags: 0 } },
+  { label: 'unid unique berserker axe', mock: { classid: cid('berserkeraxe'), quality: qid('unique'), itemType: tid('axe'), flags: 0 } },
+  { label: 'unid unique monarch', mock: { classid: cid('monarch'), quality: qid('unique'), itemType: tid('shield'), flags: 0 } },
+  { label: 'unid unique demonhead', mock: { classid: cid('demonhead'), quality: qid('unique'), itemType: tid('helm'), flags: 0 } },
+  { label: 'unid unique wirefleece', mock: { classid: cid('wirefleece'), quality: qid('unique'), itemType: tid('armor'), flags: 0 } },
+  { label: 'unid unique lacqueredplate', mock: { classid: cid('lacqueredplate'), quality: qid('unique'), itemType: tid('armor'), flags: 0 } },
+  // Unid rare items — very common drops
+  { label: 'unid rare ring', mock: { classid: cid('ring'), quality: qid('rare'), itemType: tid('ring'), flags: 0 } },
+  { label: 'unid rare amulet', mock: { classid: cid('amulet'), quality: qid('rare'), itemType: tid('amulet'), flags: 0 } },
+  { label: 'unid rare archonplate', mock: { classid: cid('archonplate'), quality: qid('rare'), itemType: tid('armor'), flags: 0 } },
+  { label: 'unid rare diadem', mock: { classid: cid('diadem'), quality: qid('rare'), itemType: tid('helm'), flags: 0 } },
+  { label: 'unid rare gauntlets', mock: { classid: cid('gauntlets'), quality: qid('rare'), itemType: tid('gloves'), flags: 0 } },
+  { label: 'unid rare boots', mock: { classid: cid('greaves'), quality: qid('rare'), itemType: tid('boots'), flags: 0 } },
+  // Unid magic items — most common
+  { label: 'unid magic ring', mock: { classid: cid('ring'), quality: qid('magic'), itemType: tid('ring'), flags: 0 } },
+  { label: 'unid magic amulet', mock: { classid: cid('amulet'), quality: qid('magic'), itemType: tid('amulet'), flags: 0 } },
+  { label: 'unid magic small charm', mock: { classid: cid('smallcharm'), quality: qid('magic'), itemType: tid('smallcharm'), flags: 0 } },
+  { label: 'unid magic large charm', mock: { classid: cid('largecharm'), quality: qid('magic'), itemType: tid('largecharm'), flags: 0 } },
+  { label: 'unid magic monarch', mock: { classid: cid('monarch'), quality: qid('magic'), itemType: tid('shield'), flags: 0 } },
+  // Unid set items
+  { label: 'unid set ring', mock: { classid: cid('ring'), quality: qid('set'), itemType: tid('ring'), flags: 0 } },
+  { label: 'unid set lacqueredplate', mock: { classid: cid('lacqueredplate'), quality: qid('set'), itemType: tid('armor'), flags: 0 } },
+  { label: 'unid set swirlingcrystal', mock: { classid: cid('swirlingcrystal'), quality: qid('set'), itemType: tid('orb'), flags: 0 } },
+  // Unid eth unique (common valuable drops)
+  { label: 'unid eth unique sacredarmor', mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x400000 } },
+  { label: 'unid eth unique berserkeraxe', mock: { classid: cid('berserkeraxe'), quality: qid('unique'), itemType: tid('axe'), flags: 0x400000 } },
+  { label: 'unid eth unique wirefleece', mock: { classid: cid('wirefleece'), quality: qid('unique'), itemType: tid('armor'), flags: 0x400000 } },
+  // Items with no rules at all (junk — should reject fast)
+  { label: 'unid magic longsword', mock: { classid: cid('longsword'), quality: qid('magic'), itemType: tid('sword'), flags: 0 } },
+  { label: 'unid rare club', mock: { classid: cid('club'), quality: qid('rare'), itemType: tid('club'), flags: 0 } },
+  { label: 'unid magic shortbow', mock: { classid: cid('shortbow'), quality: qid('magic'), itemType: tid('bow'), flags: 0 } },
   // --- No match ---
   { label: 'normal ring', mock: { classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') } },
   { label: 'random unknown classid', mock: { classid: 999, quality: qid('normal'), itemType: 99 } },
