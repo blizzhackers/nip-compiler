@@ -30,6 +30,7 @@
     "@types/escodegen": "^0.0.10",
     "@types/estree": "^1.0.8",
     "@types/node": "^25.5.0",
+    "playwright": "^1.59.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
