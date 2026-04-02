@@ -606,7 +606,7 @@ describe('Benchmark: fair comparison (all in VM)', () => {
     console.log(`  Object lookup:         ${fmt(elapsedLookup)}`);
     console.log(`  Switch vs original:    ${(elapsedOrig / elapsedSwitch).toFixed(1)}x`);
     console.log(`  Lookup vs original:    ${(elapsedOrig / elapsedLookup).toFixed(1)}x`);
-    console.log(`  Switch vs lookup:      ${(elapsedLookup / elapsedSwitch).toFixed(1)}x`);
+    console.log(`  Switch vs lookup:      ${(elapsedLookup / elapsedSwitch).toFixed(2)}x`);
     console.log(`  (${totalChecks.toLocaleString()} checks, ${items.length} items × ${iterations.toLocaleString()} iterations)`);
   });
 });
