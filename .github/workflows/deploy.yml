@@ -3,6 +3,10 @@ name: Deploy to Pages
 on:
   push:
     branches: [main]
+    paths:
+      - 'packages/web/**'
+      - 'packages/compiler/src/**'
+      - 'packages/compiler/nip/**'
 
 permissions:
   contents: read
