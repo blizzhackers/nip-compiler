@@ -1,6 +1,7 @@
 import type { languages } from 'monaco-editor';
 
 export const NIP_LANGUAGE_ID = 'nip';
+export const JIP_LANGUAGE_ID = 'jip';
 
 export const nipLanguageDef: languages.IMonarchLanguage = {
   defaultToken: '',
@@ -11,6 +12,7 @@ export const nipLanguageDef: languages.IMonarchLanguage = {
     'prefix', 'suffix', 'color', 'ladder', 'hardcore', 'classic',
     'wsm', 'weaponspeed', 'minimumsockets', 'strreq', 'dexreq',
     '2handed', 'distance', 'europe', 'uswest', 'useast', 'asia',
+    'unique', 'set',
   ],
 
   metaKeywords: ['tier', 'merctier', 'maxquantity'],

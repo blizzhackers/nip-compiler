@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { editor } from 'monaco-editor';
 import { Parser, Binder, d2Aliases } from '@blizzhackers/nip-compiler';
+import type { JipLanguage } from '@blizzhackers/nip-compiler';
 
 const parser = new Parser();
 
@@ -14,7 +15,7 @@ const knownPropertyValues = new Map<string, Set<string>>([
   ['color', new Set(Object.keys(d2Aliases.color))],
   ['class', new Set(Object.keys(d2Aliases.class))],
 ]);
-const binder = new Binder({
+const binderOptions = {
   knownStats,
   knownPropertyValues,
   propertyAliases: {
@@ -23,12 +24,18 @@ const binder = new Binder({
     type: d2Aliases.type,
     quality: d2Aliases.quality,
   },
-});
+};
+const nipBinder = new Binder(binderOptions);
+const jipBinder = new Binder({ ...binderOptions, language: 'jip' as JipLanguage });
+
+function getBinder(filename: string): Binder {
+  return filename.endsWith('.jip') ? jipBinder : nipBinder;
+}
 
 export function getFileDiagnostics(content: string, filename: string): { errors: number; warnings: number } {
   try {
     const ast = parser.parseFile(content, filename);
-    const result = binder.bindFile(ast);
+    const result = getBinder(filename).bindFile(ast);
     let errors = 0, warnings = 0;
     for (const d of result.diagnostics) {
       if (d.severity === 'error') errors++;
@@ -62,7 +69,7 @@ export function useDiagnostics(
 
       try {
         const ast = parser.parseFile(content, filename);
-        const result = binder.bindFile(ast);
+        const result = getBinder(filename).bindFile(ast);
 
         for (const diag of result.diagnostics) {
           markers.push({

@@ -1,7 +1,7 @@
 import { useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import MonacoEditor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { NIP_LANGUAGE_ID } from '../nip-language';
+import { NIP_LANGUAGE_ID, JIP_LANGUAGE_ID } from '../nip-language';
 import { setupMonaco } from '../setup-monaco';
 import { useDiagnostics } from '../use-diagnostics';
 
@@ -46,7 +46,7 @@ export const Editor = forwardRef<EditorHandle, Props>(({ value, onChange, filena
 
   return (
     <MonacoEditor
-      language={NIP_LANGUAGE_ID}
+      language={filename.endsWith('.jip') ? JIP_LANGUAGE_ID : NIP_LANGUAGE_ID}
       theme="nip-dark"
       value={value}
       onChange={v => onChange(v ?? '')}

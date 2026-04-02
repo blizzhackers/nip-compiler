@@ -34,18 +34,31 @@ export class Parser {
     const rawLines = input.split('\n');
     const lines: NipLineNode[] = [];
 
+    // Join continuation lines using the lexer to detect incomplete expressions.
+    // A line continues when:
+    // - Previous line's last token is an operator (expression incomplete)
+    // - Next line's first token is an operator (can't start a new rule)
+    // Newlines become trivia — the parser sees one continuous token stream.
+    const joined: { text: string; lineNumber: number }[] = [];
     for (let i = 0; i < rawLines.length; i++) {
-      const trimmed = rawLines[i].trim();
-      if (trimmed.length === 0) continue;
-      if (trimmed.startsWith('//')) continue;
+      const raw = rawLines[i];
+      const trimmed = raw.trim();
+      if (trimmed.length === 0 || trimmed.startsWith('//')) continue;
+      if (joined.length > 0 && isLineContinuation(joined[joined.length - 1].text, trimmed)) {
+        joined[joined.length - 1].text += ' ' + trimmed;
+      } else {
+        joined.push({ text: raw, lineNumber: i + 1 });
+      }
+    }
 
+    for (const { text, lineNumber } of joined) {
       try {
-        const node = this.parseLine(rawLines[i], i + 1);
+        const node = this.parseLine(text, lineNumber);
         lines.push(node);
       } catch (e) {
         if (e instanceof ParseError || e instanceof LexerError) {
-          const formatted = formatError(rawLines[i], 1, e.col, e.message, `${filename}:${i + 1}`);
-          throw new ParseError(formatted, i + 1, e.col, e.pos);
+          const formatted = formatError(text, 1, e.col, e.message, `${filename}:${lineNumber}`);
+          throw new ParseError(formatted, lineNumber, e.col, e.pos);
         }
         throw e;
       }
@@ -449,4 +462,44 @@ export class ParseError extends Error {
     super(message);
     this.name = 'ParseError';
   }
+}
+
+const OPERATOR_TOKENS = new Set<TokenType>([
+  TokenType.And, TokenType.Or,
+  TokenType.Equal, TokenType.NotEqual,
+  TokenType.GreaterThan, TokenType.GreaterThanOrEqual,
+  TokenType.LessThan, TokenType.LessThanOrEqual,
+  TokenType.Plus, TokenType.Minus, TokenType.Multiply, TokenType.Divide,
+  TokenType.Not,
+]);
+
+const INCOMPLETE_END_TOKENS = new Set<TokenType>([
+  ...OPERATOR_TOKENS,
+  TokenType.LeftBracket, TokenType.LeftParen, TokenType.Comma,
+]);
+
+function lastSignificantToken(text: string): TokenType | null {
+  const tokens = new Lexer(text).tokenize();
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (tokens[i].type !== TokenType.EOF && tokens[i].type !== TokenType.Comment) {
+      return tokens[i].type;
+    }
+  }
+  return null;
+}
+
+function firstSignificantToken(text: string): TokenType | null {
+  const tokens = new Lexer(text).tokenize();
+  for (const t of tokens) {
+    if (t.type !== TokenType.EOF && t.type !== TokenType.Comment) return t.type;
+  }
+  return null;
+}
+
+function isLineContinuation(prevText: string, nextTrimmed: string): boolean {
+  const first = firstSignificantToken(nextTrimmed);
+  if (first !== null && OPERATOR_TOKENS.has(first)) return true;
+  const last = lastSignificantToken(prevText);
+  if (last !== null && INCOMPLETE_END_TOKENS.has(last)) return true;
+  return false;
 }

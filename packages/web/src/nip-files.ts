@@ -6,6 +6,7 @@ import keyorg from '../../compiler/nip/keyorg.nip?raw';
 import kolton from '../../compiler/nip/kolton.nip?raw';
 import pots from '../../compiler/nip/pots.nip?raw';
 import shopbot from '../../compiler/nip/shopbot.nip?raw';
+import showcase from '../../compiler/nip/showcase.jip?raw';
 
 export interface NipFileEntry {
   name: string;
@@ -24,5 +25,6 @@ export function getDefaultFiles(): NipFileEntry[] {
     { name: 'keyorg.nip', content: keyorg, enabled: false, builtin: true },
     { name: 'pots.nip', content: pots, enabled: false, builtin: true },
     { name: 'shopbot.nip', content: shopbot, enabled: false, builtin: true },
+    { name: 'showcase.jip', content: showcase, enabled: false, builtin: true },
   ];
 }

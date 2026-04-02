@@ -3,6 +3,17 @@ import {
   MetaEntryNode, MetaSectionNode, NipFileNode, NipLineNode, NodeKind,
   SectionNode, IdentifierNode, BinaryExprNode, SourceLocation,
 } from './types.js';
+import {
+  resolveUnique, resolveSetItem, resolveSetName,
+  isUniqueName, isSetItemName, isSetName,
+  getAllUniqueNames, getAllSetItemNames, getAllSetNames,
+  type StatCheck,
+} from './emitter/d2-discriminator.js';
+import {
+  setItems, setNameToKey, setNameToKeyLower,
+} from './emitter/d2-set-items.js';
+
+export type JipLanguage = 'nip' | 'jip';
 
 const PROPERTY_ALIASES: Record<string, string> = {
   n: 'name',
@@ -24,6 +35,10 @@ const PROPERTY_KEYWORDS = new Set([
   'ladder', 'hardcore', 'classic', 'distance', 'prefix', 'suffix',
 ]);
 
+const JIP_PROPERTY_KEYWORDS = new Set([
+  ...PROPERTY_KEYWORDS, 'unique', 'set',
+]);
+
 const META_KEYWORDS = new Set([
   'maxquantity', 'mq', 'tier', 'merctier',
 ]);
@@ -35,12 +50,15 @@ const META_ALIASES: Record<string, string> = {
 export interface BinderResult {
   node: NipFileNode | NipLineNode;
   diagnostics: Diagnostic[];
+  /** For JIP set name expansion: additional lines generated from [set] == SetName */
+  expandedLines?: NipLineNode[];
 }
 
 export class Binder {
   private diagnostics: Diagnostic[] = [];
   private knownStats: Set<string> | null = null;
   private knownPropertyValues: Map<string, Set<string>> | null = null;
+  private language: JipLanguage = 'nip';
   // For range resolution: keyword → { byName: name→id, byValue: id→names[] }
   private rangeAliases: Map<string, {
     byName: Record<string, number>;
@@ -52,9 +70,11 @@ export class Binder {
     knownPropertyValues?: Map<string, Set<string>>;
     propertyAliases?: Record<string, Record<string, number>>;
     classIdAliases?: Record<string, number>;
+    language?: JipLanguage;
   }) {
     if (options?.knownStats) this.knownStats = options.knownStats;
     if (options?.knownPropertyValues) this.knownPropertyValues = options.knownPropertyValues;
+    if (options?.language) this.language = options.language;
 
     // Build range alias maps — support both legacy classIdAliases and new propertyAliases
     const aliasEntries: [string, Record<string, number>][] = [];
@@ -83,19 +103,31 @@ export class Binder {
 
   bindFile(node: NipFileNode): BinderResult {
     const allDiagnostics: Diagnostic[] = [];
+    const newLines: NipLineNode[] = [];
     for (const line of node.lines) {
-      const { diagnostics } = this.bindLine(line);
-      // Offset diagnostic lines to file-level line numbers
+      const { diagnostics, expandedLines } = this.bindLine(line);
       for (const diag of diagnostics) {
         diag.loc = { ...diag.loc, line: line.lineNumber };
       }
       allDiagnostics.push(...diagnostics);
+      newLines.push(line);
+      if (expandedLines) {
+        for (const expanded of expandedLines) {
+          newLines.push(expanded);
+        }
+      }
     }
+    node.lines = newLines;
     return { node, diagnostics: allDiagnostics };
   }
 
   bindLine(node: NipLineNode): BinderResult {
     this.diagnostics = [];
+    let expandedLines: NipLineNode[] | undefined;
+
+    if (node.property && this.language === 'jip') {
+      expandedLines = this.rewriteJipProperty(node);
+    }
 
     if (node.property) {
       this.bindPropertySection(node.property);
@@ -107,7 +139,7 @@ export class Binder {
       this.bindMetaSection(node.meta);
     }
 
-    return { node, diagnostics: [...this.diagnostics] };
+    return { node, diagnostics: [...this.diagnostics], expandedLines };
   }
 
   private bindPropertySection(section: SectionNode): void {
@@ -228,8 +260,9 @@ export class Binder {
     const resolved = PROPERTY_ALIASES[expr.name] ?? expr.name;
     expr.name = resolved;
 
-    if (!PROPERTY_KEYWORDS.has(resolved)) {
-      const suggestion = findClosestMatch(expr.name, PROPERTY_KEYWORDS);
+    const keywords = this.language === 'jip' ? JIP_PROPERTY_KEYWORDS : PROPERTY_KEYWORDS;
+    if (!keywords.has(resolved)) {
+      const suggestion = findClosestMatch(expr.name, keywords);
       const hint = suggestion ? `. Did you mean '${suggestion}'?` : '';
       this.error(expr, `Unknown property keyword '${expr.name}'${hint}`);
     }
@@ -282,6 +315,248 @@ export class Binder {
       }
     }
     // tier/merctier can be arbitrary expressions — no validation needed
+  }
+
+  /**
+   * Detect [unique] == Name or [set] == Name in JIP mode and rewrite the AST.
+   * Returns expanded lines for set name expansion, or undefined.
+   */
+  private rewriteJipProperty(node: NipLineNode): NipLineNode[] | undefined {
+    const expr = node.property!.expr;
+    const jipExpr = this.findJipKeyword(expr);
+    if (!jipExpr) return undefined;
+
+    const { keyword, name: itemName, binExpr } = jipExpr;
+
+    if (keyword === 'unique') {
+      return this.rewriteUnique(node, binExpr, itemName);
+    }
+    if (keyword === 'set') {
+      return this.rewriteSet(node, binExpr, itemName);
+    }
+    return undefined;
+  }
+
+  private findJipKeyword(expr: ExprNode): { keyword: string; name: string; binExpr: BinaryExprNode } | null {
+    if (expr.kind === NodeKind.BinaryExpr) {
+      if (expr.op === '==' && expr.left.kind === NodeKind.KeywordExpr
+        && (expr.left.name === 'unique' || expr.left.name === 'set')
+        && expr.right.kind === NodeKind.Identifier) {
+        return { keyword: expr.left.name, name: expr.right.name, binExpr: expr };
+      }
+      // Check inside && chains
+      const left = this.findJipKeyword(expr.left);
+      if (left) return left;
+      return this.findJipKeyword(expr.right);
+    }
+    return null;
+  }
+
+  private rewriteUnique(node: NipLineNode, binExpr: BinaryExprNode, name: string): undefined {
+    const result = resolveUnique(name);
+    if (!result) {
+      const allNames = getAllUniqueNames().map(n => n.name);
+      const suggestion = findClosestMatch(name, new Set(allNames));
+      const hint = suggestion ? `. Did you mean '${suggestion}'?` : '';
+      this.error(binExpr.right, `Unknown unique item '${name}'${hint}`);
+      return;
+    }
+
+    // Rewrite [unique] == Name → [name] == classIdName && [quality] == unique
+    this.rewriteToClassIdAndQuality(binExpr, result.classIdName, 'unique');
+
+    // Inject discriminator stats if needed
+    if (result.discriminator.length > 0) {
+      this.injectDiscriminator(node, result.discriminator);
+    }
+  }
+
+  private rewriteSet(node: NipLineNode, binExpr: BinaryExprNode, name: string): NipLineNode[] | undefined {
+    // Check if it's a full set name (expands to multiple lines)
+    const pieces = resolveSetName(name);
+    if (pieces) {
+      return this.expandSetName(node, binExpr, name, pieces);
+    }
+
+    // Specific set item
+    const result = resolveSetItem(name);
+    if (!result) {
+      const allItemNames = getAllSetItemNames().map(n => n.name);
+      const allSetNames = getAllSetNames().map(n => n.name);
+      const allNames = [...allItemNames, ...allSetNames];
+      const suggestion = findClosestMatch(name, new Set(allNames));
+      const hint = suggestion ? `. Did you mean '${suggestion}'?` : '';
+      this.error(binExpr.right, `Unknown set item '${name}'${hint}`);
+      return;
+    }
+
+    this.rewriteToClassIdAndQuality(binExpr, result.classIdName, 'set');
+
+    if (result.discriminator.length > 0) {
+      this.injectDiscriminator(node, result.discriminator);
+    }
+  }
+
+  private expandSetName(
+    node: NipLineNode, binExpr: BinaryExprNode,
+    setName: string, pieceKeys: string[],
+  ): NipLineNode[] {
+    // Rewrite the current line to the first piece
+    const firstKey = pieceKeys[0];
+    const firstItem = setItems[firstKey];
+    const firstResult = resolveSetItem(this.setItemToPascal(firstKey));
+    if (firstResult) {
+      this.rewriteToClassIdAndQuality(binExpr, firstResult.classIdName, 'set');
+      if (firstResult.discriminator.length > 0) {
+        this.injectDiscriminator(node, firstResult.discriminator);
+      }
+    }
+
+    // Create additional lines for remaining pieces
+    const extraLines: NipLineNode[] = [];
+    for (let i = 1; i < pieceKeys.length; i++) {
+      const key = pieceKeys[i];
+      const item = setItems[key];
+      const pascal = this.setItemToPascal(key);
+      const result = resolveSetItem(pascal);
+      if (!result) continue;
+
+      const newLine = this.createSetPieceLine(node, result, item);
+      extraLines.push(newLine);
+    }
+
+    this.info(binExpr, `Expanded set '${setName}' to ${pieceKeys.length} pieces`, 'range');
+    return extraLines;
+  }
+
+  private setItemToPascal(key: string): string {
+    const item = setItems[key];
+    if (!item) return key;
+    return item.name.replace(/'/g, '').replace(/[^a-zA-Z0-9]+/g, ' ').trim()
+      .split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+  }
+
+  private createSetPieceLine(
+    template: NipLineNode,
+    result: { classIdName: string; classId: number; onlySetForClassId: boolean; discriminator: StatCheck[] },
+    item: { name: string; classIdName: string },
+  ): NipLineNode {
+    const loc = template.property!.loc;
+
+    // Build property: [name] == classIdName && [quality] == set
+    const nameExpr: BinaryExprNode = {
+      kind: NodeKind.BinaryExpr, op: '==',
+      left: { kind: NodeKind.KeywordExpr, name: 'name', loc },
+      right: { kind: NodeKind.Identifier, name: result.classIdName, loc },
+      loc,
+    };
+    const qualityExpr: BinaryExprNode = {
+      kind: NodeKind.BinaryExpr, op: '==',
+      left: { kind: NodeKind.KeywordExpr, name: 'quality', loc },
+      right: { kind: NodeKind.Identifier, name: 'set', loc },
+      loc,
+    };
+    const propertyExpr: BinaryExprNode = {
+      kind: NodeKind.BinaryExpr, op: '&&',
+      left: nameExpr, right: qualityExpr, loc,
+    };
+
+    // Build stat section with discriminator
+    let statExpr: ExprNode | null = null;
+    if (result.discriminator.length > 0) {
+      statExpr = this.buildDiscriminatorExpr(result.discriminator, loc);
+    }
+
+    // Merge with template's stat section (if any)
+    if (template.stats && statExpr) {
+      statExpr = { kind: NodeKind.BinaryExpr, op: '&&', left: statExpr, right: template.stats.expr, loc };
+    } else if (template.stats) {
+      statExpr = template.stats.expr;
+    }
+
+    const newLine: NipLineNode = {
+      kind: NodeKind.NipLine, loc,
+      property: { kind: NodeKind.PropertySection, expr: propertyExpr, loc },
+      stats: statExpr ? { kind: NodeKind.StatSection, expr: statExpr, loc } : null,
+      meta: template.meta ? { ...template.meta } : null,
+      comment: `[set] == ${item.name}`,
+      lineNumber: template.lineNumber,
+    };
+    return newLine;
+  }
+
+  /**
+   * Rewrite a [unique/set] == Name expression in-place to [name] == classIdName && [quality] == quality.
+   * Mutates binExpr to become the && expression.
+   */
+  private rewriteToClassIdAndQuality(binExpr: BinaryExprNode, classIdName: string, quality: 'unique' | 'set'): void {
+    const loc = binExpr.loc;
+
+    // Build [name] == classIdName
+    const nameExpr: BinaryExprNode = {
+      kind: NodeKind.BinaryExpr, op: '==',
+      left: { kind: NodeKind.KeywordExpr, name: 'name', loc },
+      right: { kind: NodeKind.Identifier, name: classIdName, loc },
+      loc,
+    };
+
+    // Build [quality] == unique/set
+    const qualityExpr: BinaryExprNode = {
+      kind: NodeKind.BinaryExpr, op: '==',
+      left: { kind: NodeKind.KeywordExpr, name: 'quality', loc },
+      right: { kind: NodeKind.Identifier, name: quality, loc },
+      loc,
+    };
+
+    // Mutate in-place: binExpr becomes nameExpr && qualityExpr
+    (binExpr as any).op = '&&';
+    (binExpr as any).left = nameExpr;
+    (binExpr as any).right = qualityExpr;
+  }
+
+  /**
+   * Inject discriminator stat checks into a line's stat section.
+   * Merges with existing user stats via &&.
+   */
+  private injectDiscriminator(node: NipLineNode, checks: StatCheck[]): void {
+    const loc = node.property!.loc;
+    const discExpr = this.buildDiscriminatorExpr(checks, loc);
+
+    if (node.stats) {
+      // Merge: discriminator && user stats
+      node.stats.expr = {
+        kind: NodeKind.BinaryExpr, op: '&&',
+        left: discExpr, right: node.stats.expr, loc,
+      };
+    } else {
+      // Create new stat section
+      node.stats = {
+        kind: NodeKind.StatSection,
+        expr: discExpr,
+        loc,
+      };
+    }
+  }
+
+  private buildDiscriminatorExpr(checks: StatCheck[], loc: { pos: number; line: number; col: number }): ExprNode {
+    let expr: ExprNode = this.buildSingleCheck(checks[0], loc);
+    for (let i = 1; i < checks.length; i++) {
+      expr = {
+        kind: NodeKind.BinaryExpr, op: '&&',
+        left: expr, right: this.buildSingleCheck(checks[i], loc), loc,
+      };
+    }
+    return expr;
+  }
+
+  private buildSingleCheck(check: StatCheck, loc: { pos: number; line: number; col: number }): ExprNode {
+    return {
+      kind: NodeKind.BinaryExpr,
+      op: check.op as '==' | '>=',
+      left: { kind: NodeKind.KeywordExpr, name: check.statName, loc },
+      right: { kind: NodeKind.NumberLiteral, value: check.value, loc },
+      loc,
+    };
   }
 
   private exprSpan(expr: ExprNode): SourceLocation {

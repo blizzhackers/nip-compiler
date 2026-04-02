@@ -1,0 +1,36 @@
+// === JIP Showcase — Jaenster's Item Parser ===
+// JIP is a superset of NIP with high-level item keywords.
+// [unique] and [set] transpile to minimal NIP stat checks at compile time.
+
+// --- Single unique per classid: no identification needed ---
+// Shako is the only unique for classid 422.
+// Transpiles to: [name] == shako && [quality] == unique
+[unique] == HarlequinCrest
+
+// --- Multiple uniques per classid: auto-discriminator ---
+// Ring has 9 uniques. SoJ is distinguished by [maxmana] == 20.
+// Transpiles to: [name] == ring && [quality] == unique # [maxmana] == 20
+[unique] == TheStoneOfJordan
+
+// User stats are merged with the auto-discriminator.
+// Multiline: trailing operator continues to the next line.
+[unique] == MarasKaleidoscope # [fireresist] >= 25 # [tier] == 100
+
+// --- Rainbow Facet: all unique jewels ---
+// 8 variants share classid 643 (jewel), no other unique uses it.
+// Transpiles to: [name] == jewel && [quality] == unique
+[unique] == RainbowFacet
+
+// --- More unique items ---
+[unique] == NagelRing
+[unique] == RavenFrost
+[unique] == MarasKaleidoscope
+[unique] == TyraelsMight
+
+// --- Set items: specific piece ---
+// Transpiles to: [name] == amulet && [quality] == set # [lightresist] == 33
+[set] == TalRashasAdjudication
+
+// --- Regular NIP syntax still works in .jip files ---
+[name] == shako && [quality] == unique # [defense] == 141
+[name] >= istrune && [name] <= zodrune
