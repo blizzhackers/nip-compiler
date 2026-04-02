@@ -199,7 +199,7 @@ export class EmitterAST {
 
   private buildCiFunction(plan: DispatchPlan, mqSources: string[]): ESTree.FunctionDeclaration {
     const body: ESTree.Statement[] = [];
-    const useFlat = this.config.dispatchStrategy === DispatchStrategy.ObjectLookup;
+    const useFlat = this.config.dispatchStrategy !== DispatchStrategy.Switch;
 
     body.push(varDecl('const', [
       { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },

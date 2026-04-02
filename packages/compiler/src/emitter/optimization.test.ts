@@ -683,10 +683,11 @@ describe('E2E: emitter optimization correctness', () => {
   });
 
   describe('impossible quality filtering', () => {
-    it('rune with no quality restriction matches any quality', () => {
+    it('rune matches normal quality (the only possible quality for runes)', () => {
       const mod = compile(['[name] == berrune']);
       assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('normal'))), 1);
-      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('unique'))), 1);
+      // Unique rune is impossible in D2 — no handler emitted for that quality
+      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('unique'))), 0);
     });
 
     it('rune never needs unid bail (always identified)', () => {
