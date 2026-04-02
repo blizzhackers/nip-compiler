@@ -362,15 +362,24 @@ export class EmitterAST {
 
   private emitHandler(handlerBody: ESTree.Statement[], keys: number[], assigns: ESTree.Statement[]): void {
     const handlerName = `_d${this.helperCounter++}`;
-    this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], [
-      varDecl('const', [
-        { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },
-        { id: '_q', init: bin('|', member(ident('i'), 'quality'), literal(0)) },
-        { id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) },
-      ]),
-      ...handlerBody,
-      returnStmt(literal(0)),
-    ]));
+
+    // Only declare _c/_q/_t if the handler body references them
+    const bodyJson = JSON.stringify(handlerBody);
+    const vars: { id: string; init: ESTree.Expression }[] = [];
+    if (bodyJson.includes('"_c"')) vars.push({ id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) });
+    if (bodyJson.includes('"_q"')) vars.push({ id: '_q', init: bin('|', member(ident('i'), 'quality'), literal(0)) });
+    if (bodyJson.includes('"_t"')) vars.push({ id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) });
+
+    const body: ESTree.Statement[] = [];
+    if (vars.length > 0) body.push(varDecl('const', vars));
+    body.push(...handlerBody);
+
+    // Skip trailing return 0 if body already terminates unconditionally
+    const last = handlerBody[handlerBody.length - 1];
+    const alwaysReturns = last?.type === 'ReturnStatement';
+    if (!alwaysReturns) body.push(returnStmt(literal(0)));
+
+    this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], body));
     for (const key of keys) {
       assigns.push(exprStmt(assign(memberComputed(ident('_m'), literal(key)), ident(handlerName))));
     }

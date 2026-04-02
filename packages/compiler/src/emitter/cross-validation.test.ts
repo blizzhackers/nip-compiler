@@ -528,7 +528,7 @@ describe('Impossible quality: we reject what OG NTIP incorrectly matches', () =>
       // OG NTIP: blindly matches because rule conditions pass on the fake item
       const original = createOriginalNTIP();
       original.addLine(t.rule, 'test.nip');
-      const item = makeItem({ classid: t.classid, quality: t.quality, stats: t.stats ?? {} });
+      const item = makeItem({ classid: t.classid, quality: t.quality, itemType: 0, stats: t.stats ?? {} });
       const origResult = original.checkItem(item);
       assert.strictEqual(origResult, 1, 'OG NTIP should match (it does not know D2 type rules)');
 
