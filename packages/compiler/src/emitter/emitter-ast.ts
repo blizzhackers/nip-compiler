@@ -422,16 +422,53 @@ export class EmitterAST {
 
   // Check if a classid can have the given quality based on its type properties.
   // Returns false for impossible combos (e.g., rare charm, unique rune).
+  // D2 quality rules:
+  // - lowquality(1)/superior(3): only wearable equipment (weapons, armor, shields, helms,
+  //   boots, gloves, belts, rings, amulets). NOT jewels, charms, runes, gems, etc.
+  // - normal(2): equipment and simple items (runes, gems, etc). NOT jewels or charms.
+  // - magic(4): equipment + rings + amulets + jewels + charms
+  // - set(5): equipment + rings + amulets (NOT jewels, NOT charms)
+  // - rare(6): equipment + rings + amulets + jewels (NOT charms)
+  // - unique(7): equipment + rings + amulets + jewels + charms
+  // - crafted(8): equipment + rings + amulets (NOT jewels, NOT charms)
+  // - runes/gems/potions/gold/quest/keys: normal only
+  //
+  // Jewels are socketables: magic, rare, unique only. No normal/lowquality/superior/set/crafted.
+  // Charms: magic and unique only.
   private canHaveQuality(classid: number, quality: number): boolean {
     const props = this.getTypeProps(classid);
     if (!props) return true; // unknown type — assume possible
-    // quality: 1=lowquality, 2=normal, 3=superior, 4=magic, 5=set, 6=rare, 7=unique, 8=crafted
-    if (quality <= 3) return true; // lowquality/normal/superior always possible
-    if (quality === 4) return props.magic || props.rare; // magic items
-    if (quality === 5) return props.rare; // set items need rare-capable type
-    if (quality === 6) return props.rare; // rare items
-    if (quality === 7) return props.rare; // unique items need rare-capable type
-    if (quality === 8) return props.rare; // crafted items
+
+    // Items with no magic/rare capability (runes, gems, potions, gold, quest, keys): normal only
+    if (!props.magic && !props.rare) return quality === 2;
+
+    // Charms: magic(4) and unique(7) only
+    if (props.charm) return quality === 4 || quality === 7;
+
+    // Jewels: magic(4), rare(6), unique(7) only
+    // Detect jewel by: magic=true, rare=true, but no normal/lowquality/superior
+    // Actually we check the type ID directly
+    const typeId = this.config.aliases.classIdToType?.[classid];
+    if (typeId === 58) return quality === 4 || quality === 6 || quality === 7; // jewel
+
+    // quality: 1=lowquality, 2=normal, 3=superior — wearable equipment only
+    if (quality <= 3) return true;
+
+    // magic(4): anything magic-capable
+    if (quality === 4) return true;
+
+    // set(5): needs rare-capable
+    if (quality === 5) return props.rare;
+
+    // rare(6): needs rare-capable
+    if (quality === 6) return props.rare;
+
+    // unique(7): needs rare-capable
+    if (quality === 7) return props.rare;
+
+    // crafted(8): wearable equipment only (has rare flag)
+    if (quality === 8) return props.rare;
+
     return true;
   }
 
