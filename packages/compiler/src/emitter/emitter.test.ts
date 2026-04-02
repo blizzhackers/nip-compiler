@@ -19,10 +19,10 @@ const testAliases: AliasMapSet = {
   quality: { lowquality: 1, normal: 2, superior: 3, magic: 4, set: 5, rare: 6, unique: 7, crafted: 8 },
   flag: { identified: 0x10, ethereal: 0x400000, runeword: 0x4000000 },
   stat: {
-    strength: 0, dexterity: 2, maxhp: 39, maxmana: 41,
-    enhanceddefense: 31, sockets: 194, defense: 31,
-    fcr: 105, tohit: 19, itemmaxmanapercent: 9,
-    itemmagicbonus: 80, itemabsorblightpercent: 89,
+    strength: 0, dexterity: 2, maxhp: 7, maxmana: 9,
+    enhanceddefense: [16, 0] as [number, number], sockets: 194, defense: 31,
+    fcr: 105, tohit: 19, itemmaxmanapercent: 77,
+    itemmagicbonus: 80, itemabsorblightpercent: 144,
     lifeleech: 60, maxstamina: 11,
     fireresist: 39, coldresist: 43, lightresist: 41,
     dexterity2: [2, 0],
@@ -179,7 +179,7 @@ describe('Emitter', () => {
     const mockItem = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
 
     assert.strictEqual(mod.checkItem(mockItem), 1);
@@ -199,7 +199,7 @@ describe('Emitter', () => {
     const mockItem = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
 
     const result = mod.checkItem(mockItem, true);
@@ -270,7 +270,7 @@ describe('Emitter', () => {
     const mockItem = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: () => 0x10,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
 
     const tier = mod.getTier(mockItem);
@@ -316,7 +316,7 @@ describe('Emitter', () => {
     const mockItem = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: () => 0x10,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
 
     const result = mod.checkItem(mockItem, true);
@@ -339,7 +339,7 @@ describe('Emitter', () => {
     const mockItem = {
       classid: 415, quality: 6, itemType: 3,
       getFlag: () => 0x10,
-      getStatEx: (id: number) => id === 31 ? 200 : 0,
+      getStatEx: (id: number, param?: number) => (id === 16 && param === 0) ? 200 : 0,
     };
 
     assert.strictEqual(mod.checkItem(mockItem), 1);
@@ -407,7 +407,7 @@ describe('Emitter ESTree path', () => {
     const matchItem = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
     assert.strictEqual(mod.checkItem(matchItem), 1);
 
@@ -430,7 +430,7 @@ describe('Emitter ESTree path', () => {
     const item = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
     const result = mod.checkItem(item, true);
     assert.strictEqual(result.result, 1);
@@ -454,7 +454,7 @@ describe('Emitter ESTree path', () => {
     const item = {
       classid: 85, quality: 7, itemType: 10,
       getFlag: () => 0x10,
-      getStatEx: (id: number) => id === 9 ? 25 : 0,
+      getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
     assert.strictEqual(mod.getTier(item), 99);
   });
