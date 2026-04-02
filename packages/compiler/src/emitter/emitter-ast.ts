@@ -256,7 +256,7 @@ export class EmitterAST {
   ): void {
     if (groups.size === 0) return;
 
-    const assigns: ESTree.Statement[] = [];
+    const allEntries: { sig: string; keys: number[]; quality: number; rules: GroupedRule[] }[] = [];
 
     for (const [classid, qualityMap] of groups) {
       const fixedQualities = [...qualityMap.entries()].filter(([q]) => q !== null);
@@ -309,25 +309,43 @@ export class EmitterAST {
         }
       }
 
-      // Emit handler per deduped quality group
       for (const entry of qualityEntries) {
-        const minQuality = Math.min(...entry.keys.map(k => (k >> 10) & 0xF));
-        const handlerBody = this.buildHoistedGroup(entry.rules, mqSources, minQuality);
-        this.emitHandler(handlerBody, entry.keys, assigns);
+        const sig = entry.rules.map(r => r.source).join('|');
+        allEntries.push({ sig, keys: entry.keys, quality: entry.quality, rules: entry.rules });
       }
 
-      // True catch-all (any quality, no range) — register for remaining qualities
       if (trueCatchAll.length > 0) {
-        const handlerBody = this.buildHoistedGroup(trueCatchAll, mqSources);
         const keys: number[] = [];
         for (let q = EmitterAST.MIN_QUALITY; q <= EmitterAST.MAX_QUALITY; q++) {
           if (!mergedMap.has(q)) keys.push(classid | (q << 10));
         }
-        if (keys.length > 0) this.emitHandler(handlerBody, keys, assigns);
+        if (keys.length > 0) {
+          const sig = trueCatchAll.map(r => r.source).join('|') + '#catchall';
+          allEntries.push({ sig, keys, quality: 0, rules: trueCatchAll });
+        }
       }
     }
 
-    // Emit: const _m = []; _m[k1] = _d0; _m[k2] = _d0; ...
+    // Dedup ACROSS classids: group entries with identical rule signatures.
+    // All armor classids with the same type-expanded rules share one handler.
+    const dedupMap = new Map<string, { keys: number[]; quality: number; rules: GroupedRule[] }>();
+    for (const entry of allEntries) {
+      const existing = dedupMap.get(entry.sig);
+      if (existing) {
+        existing.keys.push(...entry.keys);
+      } else {
+        dedupMap.set(entry.sig, { keys: [...entry.keys], quality: entry.quality, rules: entry.rules });
+      }
+    }
+
+    // Build handler body once per unique signature, emit _m assignments for all keys
+    const assigns: ESTree.Statement[] = [];
+    for (const entry of dedupMap.values()) {
+      const minQuality = Math.min(...entry.keys.map(k => (k >> 10) & 0xF));
+      const handlerBody = this.buildHoistedGroup(entry.rules, mqSources, minQuality);
+      this.emitHandler(handlerBody, entry.keys, assigns);
+    }
+
     this.helperFunctions.push(varDecl('const', [{ id: '_m', init: array([]) }]));
     this.helperFunctions.push(...assigns);
   }
