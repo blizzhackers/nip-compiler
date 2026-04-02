@@ -36,7 +36,7 @@ export class Grouper {
 
   private toGroupedRule(analyzed: AnalyzedLine): GroupedRule {
     const residualProperty = analyzed.dispatch && analyzed.line.property
-      ? this.stripDispatch(analyzed.line.property.expr, analyzed.dispatch.kind, analyzed.dispatch.values, analyzed.dispatch.quality, analyzed.dispatch.expandedFromType)
+      ? this.stripDispatch(analyzed.line.property.expr, analyzed.dispatch.kind, analyzed.dispatch.values, analyzed.dispatch.quality)
       : (analyzed.line.property?.expr ?? null);
 
     const statExpr = analyzed.line.stats?.expr ?? null;
@@ -58,11 +58,10 @@ export class Grouper {
     kind: DispatchKind,
     values: number[],
     quality: number | null,
-    expandedFromType?: boolean,
   ): ExprNode | null {
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '&&') {
-      const left = this.stripDispatch(expr.left, kind, values, quality, expandedFromType);
-      const right = this.stripDispatch(expr.right, kind, values, quality, expandedFromType);
+      const left = this.stripDispatch(expr.left, kind, values, quality);
+      const right = this.stripDispatch(expr.right, kind, values, quality);
       if (left === null && right === null) return null;
       if (left === null) return right;
       if (right === null) return left;
@@ -71,22 +70,17 @@ export class Grouper {
 
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '==') {
       if (this.isDispatchComparison(expr, kind, values)) return null;
-      // When type was expanded to classids, also strip [type] == X comparisons
-      if (expandedFromType && this.isTypeComparison(expr)) return null;
       if (quality !== null && this.isQualityComparison(expr, quality)) return null;
     }
 
     if (expr.kind === NodeKind.BinaryExpr && expr.op === '||') {
       if (this.isDispatchDisjunction(expr, kind, values)) return null;
-      // When type was expanded, strip [type] == X || [type] == Y disjunctions
-      if (expandedFromType && this.isTypeDisjunction(expr)) return null;
     }
 
     // Strip range comparisons (>= / <= / > / <) on dispatched keywords
     if (expr.kind === NodeKind.BinaryExpr
       && (expr.op === '>=' || expr.op === '<=' || expr.op === '>' || expr.op === '<')
-      && (this.isRangeBoundOnDispatchKeyword(expr, kind)
-        || (expandedFromType && this.isRangeBoundOnType(expr)))) {
+      && this.isRangeBoundOnDispatchKeyword(expr, kind)) {
       return null;
     }
 
@@ -120,20 +114,6 @@ export class Grouper {
     return branches.every(b =>
       b.kind === NodeKind.BinaryExpr && b.op === '==' && this.isDispatchComparison(b, kind, values)
     );
-  }
-
-  private isTypeComparison(expr: BinaryExprNode): boolean {
-    return expr.left.kind === NodeKind.KeywordExpr && expr.left.name === 'type';
-  }
-
-  private isTypeDisjunction(expr: BinaryExprNode): boolean {
-    const branches = this.flattenOr(expr);
-    return branches.every(b =>
-      b.kind === NodeKind.BinaryExpr && b.op === '==' && this.isTypeComparison(b));
-  }
-
-  private isRangeBoundOnType(expr: BinaryExprNode): boolean {
-    return expr.left.kind === NodeKind.KeywordExpr && expr.left.name === 'type';
   }
 
   private isRangeBoundOnDispatchKeyword(expr: BinaryExprNode, kind: DispatchKind): boolean {

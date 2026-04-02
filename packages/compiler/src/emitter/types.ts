@@ -8,7 +8,6 @@ export interface AliasMapSet {
   stat: Record<string, number | [number, number]>;
   color: Record<string, number>;
   class: Record<string, number>;
-  typeToClassIds?: Record<number, number[]>;
 }
 
 export enum DispatchKind {
@@ -20,7 +19,6 @@ export interface DispatchKey {
   kind: DispatchKind;
   values: number[];
   quality: number | null;
-  expandedFromType?: boolean; // true when [type] was expanded to classid values
 }
 
 export interface AnalyzedLine {

@@ -92,22 +92,7 @@ export class Analyzer {
     }
 
     if (classidValues) return { kind: DispatchKind.Classid, values: classidValues, quality };
-    if (typeValues) {
-      // If we have a type→classid mapping, expand type dispatch to classid dispatch.
-      // This eliminates the type switch entirely — everything goes through one flat _m lookup.
-      const typeMap = this.aliases.typeToClassIds;
-      if (typeMap) {
-        const expandedClassIds: number[] = [];
-        for (const typeId of typeValues) {
-          const classIds = typeMap[typeId];
-          if (classIds) expandedClassIds.push(...classIds);
-        }
-        if (expandedClassIds.length > 0) {
-          return { kind: DispatchKind.Classid, values: expandedClassIds, quality, expandedFromType: true };
-        }
-      }
-      return { kind: DispatchKind.Type, values: typeValues, quality };
-    }
+    if (typeValues) return { kind: DispatchKind.Type, values: typeValues, quality };
     return null;
   }
 

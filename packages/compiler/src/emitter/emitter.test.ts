@@ -153,8 +153,8 @@ describe('Emitter', () => {
     assert.ok(js.includes('function checkItem'));
     assert.ok(js.includes('function getTier'));
     assert.ok(js.includes('function getMercTier'));
-    // classid 85 (ring) dispatched via array _m[85|(quality<<10)] or switch case 85
-    assert.ok(js.includes('85') || js.includes('_m['));
+    assert.ok(js.includes('case 85'));
+    assert.ok(js.includes('case 7'));
   });
 
   it('emitted code is valid JS (can be eval\'d)', () => {
@@ -371,8 +371,8 @@ describe('Emitter', () => {
     binder.bindFile(file1);
     binder.bindFile(file2);
     const js = emitter.emit([file1, file2]);
-    assert.ok(js.includes('85') || js.includes('_m['));
-    assert.ok(js.includes('520') || js.includes('_m['));
+    assert.ok(js.includes('case 85'));
+    assert.ok(js.includes('case 520'));
   });
 });
 
