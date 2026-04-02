@@ -470,4 +470,95 @@ describe('Emitter ESTree path', () => {
     const map = JSON.parse(result.map!);
     assert.strictEqual(map.version, 3);
   });
+
+  describe('tier expressions', () => {
+    function freshAliases(): AliasMapSet {
+      return {
+        classId: { ring: 85, amulet: 520, duskshroud: 467, monarch: 443, archonplate: 415 },
+        type: { ring: 10, amulet: 12, armor: 3, shield: 2, helm: 37, boots: 15, belt: 19 },
+        quality: { lowquality: 1, normal: 2, superior: 3, magic: 4, set: 5, rare: 6, unique: 7, crafted: 8 },
+        flag: { identified: 0x10, ethereal: 0x400000, runeword: 0x4000000 },
+        stat: { maxmana: 9, itemmaxmanapercent: 77, defense: 31, maxhp: 7, strength: 0 },
+        color: {}, class: {},
+      };
+    }
+
+    function evalTier(input: string, stats: Record<number, number>): number {
+      const p = new Parser();
+      const b = new Binder();
+      const file = p.parseFile(input, 'tier.nip');
+      b.bindFile(file);
+      const em = new Emitter({ aliases: freshAliases(), includeSourceComments: false });
+      const code = em.emit([file]);
+      const mod = new Function('return ' + code)()(helpers);
+      return mod.getTier({
+        classid: 85, quality: 7, itemType: 10,
+        getFlag: () => 0x10,
+        getStatEx: (id: number, param?: number) => {
+          const key = param !== undefined ? id * 1000 + param : id;
+          return stats[key] ?? 0;
+        },
+      });
+    }
+
+    it('simple [tier] == constant', () => {
+      assert.strictEqual(evalTier(
+        '[name] == ring && [quality] == unique # # [tier] == 42',
+        {},
+      ), 42);
+    });
+
+    it('[tier] == stat expression', () => {
+      const result = evalTier(
+        '[name] == ring && [quality] == unique # # [tier] == [maxmana]',
+        { 9: 120 },
+      );
+      assert.strictEqual(result, 120);
+    });
+
+    it('[tier] == arithmetic expression', () => {
+      // tier = [maxmana] + [defense] * 2
+      assert.strictEqual(evalTier(
+        '[name] == ring && [quality] == unique # # [tier] == [maxmana] + [defense] * 2',
+        { 9: 100, 31: 50 },
+      ), 200); // 100 + 50*2 = 200
+    });
+
+    it('[tier] == complex expression with division', () => {
+      // tier = ([maxhp] + [maxmana]) / 2
+      assert.strictEqual(evalTier(
+        '[name] == ring && [quality] == unique # # [tier] == ([maxhp] + [maxmana]) / 2',
+        { 7: 80, 9: 120 },
+      ), 100); // (80 + 120) / 2 = 100
+    });
+
+    it('[tier] == expression with subtraction', () => {
+      // tier = [defense] - [strength]
+      assert.strictEqual(evalTier(
+        '[name] == ring && [quality] == unique # # [tier] == [defense] - [strength]',
+        { 31: 150, 0: 30 },
+      ), 120); // 150 - 30
+    });
+
+    it('highest tier wins across multiple rules', () => {
+      const input = [
+        '[name] == ring && [quality] == unique # # [tier] == [maxmana]',
+        '[name] == ring && [quality] == unique # [itemmaxmanapercent] == 25 # [tier] == [maxmana] * 2',
+      ].join('\n');
+      const p = new Parser();
+      const b = new Binder();
+      const file = p.parseFile(input, 'tier.nip');
+      b.bindFile(file);
+      const em = new Emitter({ aliases: freshAliases(), includeSourceComments: false });
+      const code = em.emit([file]);
+      const mod = new Function('return ' + code)()(helpers);
+      const item = {
+        classid: 85, quality: 7, itemType: 10,
+        getFlag: () => 0x10,
+        getStatEx: (id: number) => id === 9 ? 50 : id === 77 ? 25 : 0,
+      };
+      // First rule: tier = 50, second rule (stat matches): tier = 100
+      assert.strictEqual(mod.getTier(item), 100);
+    });
+  });
 });
