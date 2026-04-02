@@ -31,12 +31,26 @@ function sid(n: string) { const s = d2Aliases.stat[n]; return Array.isArray(s) ?
 const switchCode = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: DispatchStrategy.Switch }).emit(files);
 const objectCode = new Emitter({ aliases: d2Aliases, includeSourceComments: false, dispatchStrategy: DispatchStrategy.ObjectLookup }).emit(files);
 
-// Build a self-contained HTML page that:
-// 1. Defines helpers
-// 2. Loads the emitted code
-// 3. Creates test items
-// 4. Runs the benchmark
-// 5. Exposes results on window.__result
+// Build items from the cross-validation TEST_ITEMS
+const testSrc = readFileSync(join(ROOT, 'src/emitter/cross-validation.test.ts'), 'utf-8');
+const itemsMatch = testSrc.match(/const TEST_ITEMS[^=]*=\s*\[([\s\S]*?)\n\];/);
+const rawItems: string = itemsMatch![1];
+
+// Convert the TS items to plain JS — replace helper calls with values
+let itemsJs = rawItems
+  .replace(/: TestItem/g, '')
+  .replace(/cid\('([^']+)'\)/g, (_, n) => String(d2Aliases.classId[n]))
+  .replace(/qid\('([^']+)'\)/g, (_, n) => String(d2Aliases.quality[n]))
+  .replace(/tid\('([^']+)'\)/g, (_, n) => String(d2Aliases.type[n]))
+  .replace(/sidKey\('([^']+)'\)/g, (_, n) => {
+    const s = d2Aliases.stat[n];
+    return `'${Array.isArray(s) ? `${s[0]}_${s[1]}` : s}'`;
+  })
+  .replace(/\[sidKey\('([^']+)'\)\]/g, (_, n) => {
+    const s = d2Aliases.stat[n];
+    return `['${Array.isArray(s) ? `${s[0]}_${s[1]}` : s}']`;
+  });
+
 function buildPage(emittedCode: string, iterations: number): string {
   return `<!DOCTYPE html><html><body><script>
 var helpers = {
@@ -48,27 +62,22 @@ var helpers = {
 var factory = ${emittedCode};
 var mod = factory(helpers);
 
-var items = [
-  { classid: ${cid('ring')}, quality: ${qid('unique')}, itemType: 10, stats: { '${sid('itemmaxmanapercent')}': 25 }, flags: 16 },
-  { classid: ${cid('ring')}, quality: ${qid('rare')}, itemType: 10, stats: { '${sid('fcr')}': 10, '${sid('maxhp')}': 35 }, flags: 16 },
-  { classid: ${cid('amulet')}, quality: ${qid('unique')}, itemType: 12, stats: { '${sid('strength')}': 5 }, flags: 16 },
-  { classid: ${cid('berrune')}, quality: ${qid('normal')}, itemType: 36, stats: {}, flags: 16 },
-  { classid: ${cid('monarch')}, quality: ${qid('normal')}, itemType: 2, stats: { '${sid('sockets')}': 4 }, flags: 16 },
-  { classid: ${cid('shako')}, quality: ${qid('unique')}, itemType: 37, stats: { '31': 141 }, flags: 16 },
-  { classid: 999, quality: ${qid('normal')}, itemType: 99, stats: {}, flags: 16 },
-  { classid: ${cid('ring')}, quality: ${qid('unique')}, itemType: 10, stats: {}, flags: 0 },
-  { classid: ${cid('archonplate')}, quality: ${qid('rare')}, itemType: 3, stats: {}, flags: 0 },
-  { classid: ${cid('duskshroud')}, quality: ${qid('unique')}, itemType: 3, stats: {}, flags: 0 },
-  { classid: ${cid('phaseblade')}, quality: ${qid('unique')}, itemType: 30, stats: { '${sid('sockets')}': 4 }, flags: 83886096 },
-  { classid: ${cid('longsword')}, quality: ${qid('magic')}, itemType: 30, stats: {}, flags: 0 }
-].map(function(m) {
+var items = [${itemsJs}].map(function(t) {
+  var m = t.mock;
+  var flags = m.flags !== undefined ? m.flags : 16;
+  var stats = m.stats || {};
+  var prefix = m._prefix || 0;
+  var suffix = m._suffix || 0;
   return {
-    classid: m.classid, quality: m.quality, itemType: m.itemType, ilvl: 85, itemclass: 0,
-    getFlag: function(f) { return (m.flags & f) ? f : 0; },
-    getStatEx: function(id, p) { var k = p !== undefined ? id+'_'+p : String(id); return m.stats[k] || 0; },
+    classid: m.classid, quality: m.quality, itemType: m.itemType,
+    ilvl: m.ilvl || 85, itemclass: m.itemclass || 0,
+    getFlag: function(f) { return (flags & f) ? f : 0; },
+    getStatEx: function(id, p) { var k = p !== undefined ? id+'_'+p : String(id); return stats[k] || 0; },
     getColor: function() { return 0; }, strreq: 0, dexreq: 0, onGroundOrDropping: true, distance: 5,
-    getPrefix: function() { return 0; }, getSuffix: function() { return 0; },
-    getParent: function() { return null; }, isInStorage: false
+    getPrefix: function(v) { return v === prefix ? v : 0; },
+    getSuffix: function(v) { return v === suffix ? v : 0; },
+    getParent: function() { return null; }, isInStorage: false,
+    fname: 'Test', mode: 0, location: 0
   };
 });
 
@@ -215,9 +224,9 @@ async function run() {
     const sw = await benchBrowser(browser, 'Switch', switchCode, iterations);
     const obj = await benchBrowser(browser, 'Object lookup', objectCode, iterations);
 
-    console.log(`  Switch vs original:  ${(orig.elapsed / origIterations * iterations / sw.elapsed).toFixed(1)}x`);
-    console.log(`  Object vs original:  ${(orig.elapsed / origIterations * iterations / obj.elapsed).toFixed(1)}x`);
-    console.log(`  Switch/Object:       ${(sw.elapsed / obj.elapsed).toFixed(2)}`);
+    console.log(`  Switch vs original:  ${(sw.ops / orig.ops).toFixed(1)}x`);
+    console.log(`  Object vs original:  ${(obj.ops / orig.ops).toFixed(1)}x`);
+    console.log(`  Switch/Object:       ${(obj.ops / sw.ops).toFixed(2)}`);
     await browser.close();
   }
 }
