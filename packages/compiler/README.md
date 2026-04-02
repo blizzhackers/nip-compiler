@@ -101,6 +101,8 @@ const js = emitter.emit([ast]);
 - **Unid bail** — skip magical stat checks on unidentified items, return "maybe". Only fires after ALL property conditions (including flags) pass, matching the original NTIP behavior. Base stats (defense, damage, durability) are always readable and evaluated even on unid items
 - **Selectivity reordering** — AND conditions sorted by selectivity (`==` first, then `!=`, ranges, OR) for faster short-circuit
 - **Dead code elimination** — unconditional matches cut unreachable rules; consecutive returns after a match are pruned
+- **Impossible quality filtering** — uses D2 type properties to skip impossible quality combos at compile time. Charms can only be magic/unique, runes/gems/potions are always normal, jewels are magic/rare/unique only. The OG NTIP would blindly match a "rare charm" or "magic rune" — we reject them
+- **Type→classid expansion** — `[type] == armor` is expanded to all 45 armor classids at compile time, eliminating the runtime type switch
 - **`const`/`let`** — hints to JIT for register allocation; `|0` coercion for int32 smi path
 
 ## Kolbot integration
@@ -120,4 +122,6 @@ The compiled module calls `NTIP.addCompiled()` on load. `CheckItem`, `GetTier`, 
 npm test                    # 335 tests
 ```
 
-Cross-validated against the original `NTItemParser.js` with 110 test items covering quality ranges, eth/non-eth complement chains, unidentified items with base stats, rune ranges, runewords, prefix/suffix, and edge cases — 0 mismatches.
+Cross-validated against the original `NTItemParser.js` with 190 test items covering quality ranges, eth/non-eth complement chains, unidentified items with base stats, rune ranges, runewords, prefix/suffix, tier calculations, maxquantity, and edge cases — 0 mismatches.
+
+Additionally, 6 tests verify that we *intentionally differ* from the OG NTIP by rejecting impossible quality combinations (rare charms, magic runes, unique gold) that the original would blindly match.

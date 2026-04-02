@@ -503,6 +503,43 @@ describe('Cross-validation: our emitter vs original NTIP', () => {
   });
 });
 
+describe('Impossible quality: we reject what OG NTIP incorrectly matches', () => {
+  // D2 has strict quality rules per item type. The OG NTIP doesn't know these —
+  // it evaluates rules blindly. We use typeProperties to skip impossible combos
+  // at compile time, which is both faster and more correct.
+
+  const impossibleItems: { rule: string; label: string; classid: number; quality: number; stats?: Record<string, number> }[] = [
+    { rule: '[name] == smallcharm && [quality] == rare # [maxhp] >= 20', label: 'rare charm',
+      classid: cid('smallcharm'), quality: qid('rare'), stats: { [sidKey('maxhp')]: 20 } },
+    { rule: '[name] == smallcharm && [quality] == set # [maxhp] >= 20', label: 'set charm',
+      classid: cid('smallcharm'), quality: qid('set'), stats: { [sidKey('maxhp')]: 20 } },
+    { rule: '[name] == smallcharm && [quality] == crafted # [maxhp] >= 20', label: 'crafted charm',
+      classid: cid('smallcharm'), quality: qid('crafted'), stats: { [sidKey('maxhp')]: 20 } },
+    { rule: '[name] == berrune && [quality] == magic', label: 'magic rune',
+      classid: cid('berrune'), quality: qid('magic') },
+    { rule: '[name] == berrune && [quality] == rare', label: 'rare rune',
+      classid: cid('berrune'), quality: qid('rare') },
+    { rule: '[name] == gold && [quality] == unique # [gold] >= 500', label: 'unique gold',
+      classid: cid('gold'), quality: qid('unique'), stats: { [sidKey('gold')]: 500 } },
+  ];
+
+  for (const t of impossibleItems) {
+    it(`rejects "${t.label}" (OG NTIP would match)`, () => {
+      // OG NTIP: blindly matches because rule conditions pass on the fake item
+      const original = createOriginalNTIP();
+      original.addLine(t.rule, 'test.nip');
+      const item = makeItem({ classid: t.classid, quality: t.quality, stats: t.stats ?? {} });
+      const origResult = original.checkItem(item);
+      assert.strictEqual(origResult, 1, 'OG NTIP should match (it does not know D2 type rules)');
+
+      // Ours: rejects because we know this quality is impossible for this item type
+      const ours = createOurEmitter([t.rule], 'test.nip');
+      const ourResult = ours.checkItem(item);
+      assert.strictEqual(ourResult, 0, 'We should reject (impossible quality for this type)');
+    });
+  }
+});
+
 describe('Benchmark: fair comparison (all in VM)', () => {
   let original: ReturnType<typeof createOriginalNTIP>;
   let switchVM: ReturnType<typeof createOurEmitter>;
