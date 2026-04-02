@@ -13,7 +13,7 @@ import { ResizeHandleH } from './components/ResizeHandleH';
 import { ProblemsPanel } from './components/ProblemsPanel';
 import './App.css';
 
-const defaultOptions: CompileOptions = { kolbot: true, prettyPrint: true, minify: false };
+const defaultOptions: CompileOptions = { kolbot: true, prettyPrint: true, minify: false, dispatchStrategy: 'switch' };
 
 export function App() {
   const [files, setFiles] = useState<NipFileEntry[]>(() => {

@@ -6,7 +6,7 @@ interface Props {
 }
 
 export function OptionsBar({ options, onChange }: Props) {
-  const toggle = (key: keyof CompileOptions) => {
+  const toggle = (key: 'kolbot' | 'prettyPrint' | 'minify') => {
     const next = { ...options, [key]: !options[key] };
     if (key === 'minify' && next.minify) next.prettyPrint = false;
     if (key === 'prettyPrint' && next.prettyPrint) next.minify = false;
@@ -27,6 +27,13 @@ export function OptionsBar({ options, onChange }: Props) {
         <input type="checkbox" checked={options.minify} onChange={() => toggle('minify')} />
         Minify
       </label>
+      <select
+        value={options.dispatchStrategy}
+        onChange={(e) => onChange({ ...options, dispatchStrategy: e.target.value as CompileOptions['dispatchStrategy'] })}
+      >
+        <option value="switch">Switch dispatch</option>
+        <option value="object-lookup">Object lookup</option>
+      </select>
     </div>
   );
 }

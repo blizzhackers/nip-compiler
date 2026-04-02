@@ -1,10 +1,11 @@
-import { Parser, Binder, Emitter, OutputFormat, d2Aliases, DiagnosticAnalyzer, Analyzer, Grouper } from '@blizzhackers/nip-compiler';
+import { Parser, Binder, Emitter, OutputFormat, DispatchStrategy, d2Aliases, DiagnosticAnalyzer, Analyzer, Grouper } from '@blizzhackers/nip-compiler';
 import type { Diagnostic } from '@blizzhackers/nip-compiler';
 
 export interface CompileOptions {
   kolbot: boolean;
   prettyPrint: boolean;
   minify: boolean;
+  dispatchStrategy: 'switch' | 'object-lookup';
 }
 
 export interface NipFile {
@@ -81,6 +82,8 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
       minify: options.minify,
       includeSourceComments: true,
       outputFormat: options.kolbot ? OutputFormat.CJS : OutputFormat.IIFE,
+      dispatchStrategy: options.dispatchStrategy === 'object-lookup'
+        ? DispatchStrategy.ObjectLookup : DispatchStrategy.Switch,
     });
 
     // Cross-file semantic analysis
