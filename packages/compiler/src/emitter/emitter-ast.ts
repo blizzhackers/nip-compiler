@@ -45,6 +45,7 @@ export class EmitterAST {
   private localVarCounter = 0;
   private helperFunctions: ESTree.Statement[] = [];
   private helperCounter = 0;
+  private handlerNames: string[] = [];
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -105,6 +106,7 @@ export class EmitterAST {
     // _ci function (handler functions + _m array emitted before _ci)
     this.helperFunctions = [];
     this.helperCounter = 0;
+    this.handlerNames = [];
     const ciFunc = this.buildCiFunction(plan, mqRules.map(m => m.source));
     body.push(...this.helperFunctions);
     body.push(ciFunc);
@@ -212,16 +214,27 @@ export class EmitterAST {
       // Each handler is small → TurboFan eligible.
       this.buildFlatDispatch(plan.classidGroups, mqSources);
 
-      // Uint16Array index → function table: _mi[key] → _mf[idx](i, _id)
-      if (plan.classidGroups.size > 0) {
+      // Uint16Array index → switch dispatch with jump table
+      // _mi[classid|(quality<<10)] returns a handler index (0 = no handler).
+      // switch(_ix) generates a jump table on dense integer cases — optimal on SpiderMonkey.
+      if (plan.classidGroups.size > 0 && this.handlerNames.length > 0) {
         body.push(varDecl('var', [{
           id: '_ix',
           init: memberComputed(ident('_mi'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
         }]));
-        body.push(ifStmt(ident('_ix'), [
-          varDecl('var', [{ id: '_r2', init: call(memberComputed(ident('_mf'), ident('_ix')), [ident('i'), ident('_id')]) }]),
-          ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
-        ]));
+
+        const cases: ESTree.SwitchCase[] = [];
+        // case 0: no handler — break to continue with type dispatch / catch-all
+        cases.push(switchCase(literal(0), [breakStmt()]));
+        // case N: { var _r2 = _dN(i, _id); if (_r2) return _r2; break; }
+        for (let idx = 0; idx < this.handlerNames.length; idx++) {
+          cases.push(switchCase(literal(idx + 1), [block([
+            varDecl('var', [{ id: '_r2', init: call(ident(this.handlerNames[idx]), [ident('i'), ident('_id')]) }]),
+            ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
+            breakStmt(),
+          ])]));
+        }
+        body.push(switchStmt(ident('_ix'), cases));
       }
     } else {
       // Switch dispatch: nested switch(_c) { switch(_q) { ... } }
@@ -350,33 +363,23 @@ export class EmitterAST {
       }
     }
 
-    // Build handler body once per unique signature
-    // Two-level dispatch: Uint16Array(_mi) for index lookup → dense function table(_mf)
-    // Uint16Array access is a raw memory read (no type checks, no hole checks).
-    // The function table is a small dense array of uniform type (all functions).
-    // 10% faster on SpiderMonkey, 19% faster on V8 vs dense Array.fill(0).
-    const handlerFns: ESTree.Expression[] = [
-      // Index 0 = no handler (Uint16Array defaults to 0)
-      fnExpr([], [returnStmt(literal(0))]),
-    ];
+    // Build handler body once per unique signature.
+    // Uint16Array(_mi) maps classid|quality → handler index.
+    // switch(_ix) in _ci dispatches to the handler via jump table.
     const indexAssigns: ESTree.Statement[] = [];
 
     for (const entry of dedupMap.values()) {
       const minQuality = Math.min(...entry.keys.map(k => (k >> 10) & 0xF));
       const handlerBody = this.buildHoistedGroup(entry.rules, mqSources, minQuality);
-      this.emitHandler(handlerBody, entry.keys, handlerFns, indexAssigns);
+      this.emitHandler(handlerBody, entry.keys, indexAssigns);
     }
 
-    // Emit: var _mi = new Uint16Array(maxKey+1); var _mf = [noop, _d0, _d1, ...];
+    // Emit: var _mi = new Uint16Array(maxKey+1);
     this.helperFunctions.push(varDecl('var', [{
       id: '_mi',
       init: { type: 'NewExpression', callee: ident('Uint16Array'), arguments: [literal(this.maxMKey + 1)] } as ESTree.Expression,
     }]));
     this.helperFunctions.push(...indexAssigns);
-    this.helperFunctions.push(varDecl('var', [{
-      id: '_mf',
-      init: array(handlerFns),
-    }]));
   }
 
   private maxMKey = 0;
@@ -384,11 +387,10 @@ export class EmitterAST {
   private emitHandler(
     handlerBody: ESTree.Statement[],
     keys: number[],
-    handlerFns: ESTree.Expression[],
     indexAssigns: ESTree.Statement[],
   ): void {
     for (const k of keys) if (k > this.maxMKey) this.maxMKey = k;
-    const handlerIndex = handlerFns.length;
+    const handlerIndex = this.handlerNames.length + 1; // 0 = no handler
     const handlerName = `_d${this.helperCounter++}`;
 
     // Only declare _c/_q/_t if the handler body references them
@@ -407,7 +409,7 @@ export class EmitterAST {
     if (!alwaysReturns) body.push(returnStmt(literal(0)));
 
     this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], body));
-    handlerFns.push(ident(handlerName));
+    this.handlerNames.push(handlerName);
 
     // _mi[key] = handlerIndex
     for (const key of keys) {
