@@ -632,72 +632,82 @@ export class EmitterAST {
       }
       stmts.push(...this.chainBlocksAST(pendingBlocks));
     } else {
-      // Unid bail ordering: flagged groups are self-contained (base + unid bail + magical
-      // all inside the if(flag) block) because the flag is a property condition that
-      // must pass before unid bail fires. Unflagged groups accumulate and get a
-      // shared unid bail at the end.
-      let pendingBaseBlocks: ASTRuleBlock[] = [];
-      let pendingMagicalBlocks: ASTRuleBlock[] = [];
-      let pendingMagicalSource: string | null = null;
+      // Two-pass approach: ALL base-stat rules first (both flagged and unflagged),
+      // then global unid bail, then ALL magical rules. This ensures base-stat rules
+      // (like defense checks) always run before the unid bail, even when mixed with
+      // flagged magical rules in the same handler.
+      //
+      // The flag condition (e.g., !ethereal) is a property check that must wrap its
+      // rules, but base vs magical ordering takes priority over flag grouping.
 
-      const flushPending = (): void => {
-        stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
-        pendingBaseBlocks = [];
-        if (pendingMagicalBlocks.length > 0 && pendingMagicalSource) {
-          const maybeId = this.getSourceId(pendingMagicalSource);
-          stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
-          stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
-          pendingMagicalBlocks = [];
-          pendingMagicalSource = null;
-        }
-      };
+      type FlaggedBlock = { flagCondition: ESTree.Expression | null; blocks: ASTRuleBlock[] };
+      const basePass: FlaggedBlock[] = [];
+      const magicalPass: FlaggedBlock[] = [];
+      let firstMagicalSource: string | null = null;
 
       for (const group of groups) {
-        if (group.flagCondition) {
-          flushPending();
+        const baseBlocks: ASTRuleBlock[] = [];
+        const magicalBlocks: ASTRuleBlock[] = [];
 
-          const baseRules: typeof group.rules = [];
-          const magicalRules: typeof group.rules = [];
-          let firstMagical: string | null = null;
-
-          for (const rule of group.rules) {
-            const effective = rule.stripped;
-            if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr, quality)) {
-              magicalRules.push(rule);
-              if (!firstMagical) firstMagical = effective.source;
-            } else {
-              baseRules.push(rule);
-            }
-          }
-
-          const innerStmts: ESTree.Statement[] = [];
-          innerStmts.push(...this.chainBlocksAST(baseRules.map(r =>
-            this.buildCheckRuleBlock(r.stripped, mqSources, hoisted))));
-
-          if (magicalRules.length > 0 && firstMagical) {
-            const maybeId = this.getSourceId(firstMagical);
-            innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
-            innerStmts.push(...this.chainBlocksAST(magicalRules.map(r => {
-              const stripped = this.stripIdentifiedCheck(r.stripped);
-              return this.buildCheckRuleBlock(stripped, mqSources, hoisted);
-            })));
-          }
-
-          stmts.push(ifStmt(group.flagCondition, innerStmts));
-        } else {
-          for (const rule of group.rules) {
-            const effective = rule.original;
-            if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr, quality)) {
-              if (!pendingMagicalSource) pendingMagicalSource = effective.source;
-              const stripped = this.stripIdentifiedCheck(effective);
-              pendingMagicalBlocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted));
-            } else {
-              pendingBaseBlocks.push(this.buildCheckRuleBlock(effective, mqSources, hoisted));
-            }
+        for (const rule of group.rules) {
+          const effective = group.flagCondition ? rule.stripped : rule.original;
+          if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr, quality)) {
+            if (!firstMagicalSource) firstMagicalSource = effective.source;
+            const stripped = this.stripIdentifiedCheck(effective);
+            magicalBlocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted));
+          } else {
+            baseBlocks.push(this.buildCheckRuleBlock(
+              group.flagCondition ? rule.stripped : rule.original, mqSources, hoisted));
           }
         }
+
+        if (baseBlocks.length > 0) {
+          basePass.push({ flagCondition: group.flagCondition, blocks: baseBlocks });
+        }
+        if (magicalBlocks.length > 0) {
+          magicalPass.push({ flagCondition: group.flagCondition, blocks: magicalBlocks });
+        }
       }
-      flushPending();
+
+      // Emit base-stat rules (always run, even on unid)
+      for (const { flagCondition, blocks } of basePass) {
+        if (flagCondition) {
+          stmts.push(ifStmt(flagCondition, this.chainBlocksAST(blocks)));
+        } else {
+          stmts.push(...this.chainBlocksAST(blocks));
+        }
+      }
+
+      // Magical rules: unflagged get a shared unid bail, flagged get their own
+      // bail inside the flag condition (flag is a property check that must pass first)
+      const unflaggedMagical = magicalPass.filter(p => !p.flagCondition);
+      const flaggedMagical = magicalPass.filter(p => p.flagCondition);
+
+      if (unflaggedMagical.length > 0 && firstMagicalSource) {
+        const maybeId = this.getSourceId(firstMagicalSource);
+        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+        for (const { blocks } of unflaggedMagical) {
+          stmts.push(...this.chainBlocksAST(blocks));
+        }
+      }
+
+      for (const { flagCondition, blocks } of flaggedMagical) {
+        // Each flagged magical group: flag check first, then unid bail inside
+        const innerStmts: ESTree.Statement[] = [];
+        const src = blocks[0]?.comment; // use first rule's source for bail ID
+        // Find first magical source in this group
+        let groupSource = firstMagicalSource;
+        if (src) {
+          const match = src.match(/^(.+#\d+)/);
+          if (match) groupSource = match[1];
+        }
+        if (groupSource) {
+          const maybeId = this.getSourceId(groupSource);
+          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+        }
+        innerStmts.push(...this.chainBlocksAST(blocks));
+        stmts.push(ifStmt(flagCondition!, innerStmts));
+      }
     }
 
     return stmts;
