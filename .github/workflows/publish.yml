@@ -1,0 +1,64 @@
+name: Publish @blizzhackers/nip-compiler
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install
+
+      - run: pnpm --filter @blizzhackers/nip-compiler build
+
+      - run: pnpm --filter @blizzhackers/nip-compiler test
+
+      - name: Bump version
+        working-directory: packages/compiler
+        run: npm version ${{ inputs.version }} --no-git-tag-version
+
+      - name: Get new version
+        id: version
+        working-directory: packages/compiler
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/compiler/package.json
+          git commit -m "release: @blizzhackers/nip-compiler@${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push
+          git push --tags
+
+      - name: Publish to npm
+        working-directory: packages/compiler
+        run: pnpm publish --provenance --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
