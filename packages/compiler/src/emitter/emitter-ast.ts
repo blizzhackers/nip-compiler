@@ -328,9 +328,11 @@ export class EmitterAST {
       }
 
       for (const group of caseGroups) {
+        // Use minimum quality in the group — most permissive for base stat visibility
+        const minQuality = Math.min(...group.keys);
         const caseBody = isTier
           ? this.buildTierGroup(group.rules)
-          : this.buildHoistedGroup(group.rules, mqSources);
+          : this.buildHoistedGroup(group.rules, mqSources, minQuality);
         for (let i = 0; i < group.keys.length - 1; i++) {
           cases.push(switchCase(literal(group.keys[i]), []));
         }
@@ -427,7 +429,7 @@ export class EmitterAST {
     return result;
   }
 
-  private buildHoistedGroup(rules: GroupedRule[], mqSources: string[]): ESTree.Statement[] {
+  private buildHoistedGroup(rules: GroupedRule[], mqSources: string[], quality: number | null = null): ESTree.Statement[] {
     const stmts: ESTree.Statement[] = [];
 
     // Sort: property-only first, then group by flag condition for better dedup
@@ -485,80 +487,96 @@ export class EmitterAST {
     // Group consecutive rules by shared flag/property condition
     const groups = this.groupBySharedConditionAST(alive);
 
-    // Emit groups. Flagged groups are self-contained (base + unid bail + magical
-    // all inside the if(flag) block) because the flag is a property condition that
-    // must pass before unid bail fires. Unflagged groups accumulate and get a
-    // shared unid bail at the end.
     stmts.push(...hoistedDecls);
-    let pendingBaseBlocks: ASTRuleBlock[] = [];
-    let pendingMagicalBlocks: ASTRuleBlock[] = [];
-    let pendingMagicalSource: string | null = null;
 
-    const flushPending = (): void => {
-      stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
-      pendingBaseBlocks = [];
-      if (pendingMagicalBlocks.length > 0 && pendingMagicalSource) {
-        const maybeId = this.getSourceId(pendingMagicalSource);
-        stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
-        stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
-        pendingMagicalBlocks = [];
-        pendingMagicalSource = null;
-      }
-    };
+    // Quality <= 3 (lowquality/normal/superior) items are always identified in-game.
+    // Skip the entire base/magical split and _id checks — all stats are readable.
+    const alwaysIdentified = quality !== null && quality <= 3;
 
-    for (const group of groups) {
-      if (group.flagCondition) {
-        // Flush any pending unflagged blocks first
-        flushPending();
-
-        // Self-contained flagged group: base + unid bail + magical all inside if(flag)
-        const baseRules: typeof group.rules = [];
-        const magicalRules: typeof group.rules = [];
-        let firstMagical: string | null = null;
-
-        for (const rule of group.rules) {
-          const effective = rule.stripped;
-          if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
-            magicalRules.push(rule);
-            if (!firstMagical) firstMagical = effective.source;
-          } else {
-            baseRules.push(rule);
-          }
-        }
-
-        const innerStmts: ESTree.Statement[] = [];
-        const baseBlocks = baseRules.map(r =>
-          this.buildCheckRuleBlock(r.stripped, mqSources, hoisted));
-        innerStmts.push(...this.chainBlocksAST(baseBlocks));
-
-        if (magicalRules.length > 0 && firstMagical) {
-          const maybeId = this.getSourceId(firstMagical);
-          innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
-          const magicBlocks = magicalRules.map(r => {
-            const stripped = this.stripIdentifiedCheck(r.stripped);
-            return this.buildCheckRuleBlock(stripped, mqSources, hoisted);
-          });
-          innerStmts.push(...this.chainBlocksAST(magicBlocks));
-        }
-
-        stmts.push(ifStmt(group.flagCondition, innerStmts));
-      } else {
-        // Unflagged: accumulate base/magical separately
-        for (const rule of group.rules) {
-          const effective = rule.original;
-          if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr)) {
-            if (!pendingMagicalSource) pendingMagicalSource = effective.source;
-            const stripped = this.stripIdentifiedCheck(effective);
-            pendingMagicalBlocks.push(
-              this.buildCheckRuleBlock(stripped, mqSources, hoisted));
-          } else {
-            pendingBaseBlocks.push(
-              this.buildCheckRuleBlock(effective, mqSources, hoisted));
-          }
+    if (alwaysIdentified) {
+      let pendingBlocks: ASTRuleBlock[] = [];
+      for (const group of groups) {
+        const blocks = group.rules.map(r => {
+          const effective = group.flagCondition ? r.stripped : r.original;
+          return this.buildCheckRuleBlock(effective, mqSources, hoisted);
+        });
+        if (group.flagCondition) {
+          stmts.push(...this.chainBlocksAST(pendingBlocks));
+          pendingBlocks = [];
+          stmts.push(ifStmt(group.flagCondition, this.chainBlocksAST(blocks)));
+        } else {
+          pendingBlocks.push(...blocks);
         }
       }
+      stmts.push(...this.chainBlocksAST(pendingBlocks));
+    } else {
+      // Unid bail ordering: flagged groups are self-contained (base + unid bail + magical
+      // all inside the if(flag) block) because the flag is a property condition that
+      // must pass before unid bail fires. Unflagged groups accumulate and get a
+      // shared unid bail at the end.
+      let pendingBaseBlocks: ASTRuleBlock[] = [];
+      let pendingMagicalBlocks: ASTRuleBlock[] = [];
+      let pendingMagicalSource: string | null = null;
+
+      const flushPending = (): void => {
+        stmts.push(...this.chainBlocksAST(pendingBaseBlocks));
+        pendingBaseBlocks = [];
+        if (pendingMagicalBlocks.length > 0 && pendingMagicalSource) {
+          const maybeId = this.getSourceId(pendingMagicalSource);
+          stmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+          stmts.push(...this.chainBlocksAST(pendingMagicalBlocks));
+          pendingMagicalBlocks = [];
+          pendingMagicalSource = null;
+        }
+      };
+
+      for (const group of groups) {
+        if (group.flagCondition) {
+          flushPending();
+
+          const baseRules: typeof group.rules = [];
+          const magicalRules: typeof group.rules = [];
+          let firstMagical: string | null = null;
+
+          for (const rule of group.rules) {
+            const effective = rule.stripped;
+            if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr, quality)) {
+              magicalRules.push(rule);
+              if (!firstMagical) firstMagical = effective.source;
+            } else {
+              baseRules.push(rule);
+            }
+          }
+
+          const innerStmts: ESTree.Statement[] = [];
+          innerStmts.push(...this.chainBlocksAST(baseRules.map(r =>
+            this.buildCheckRuleBlock(r.stripped, mqSources, hoisted))));
+
+          if (magicalRules.length > 0 && firstMagical) {
+            const maybeId = this.getSourceId(firstMagical);
+            innerStmts.push(ifStmt(unary('!', ident('_id')), [returnStmt(literal(-(maybeId + 1)))]));
+            innerStmts.push(...this.chainBlocksAST(magicalRules.map(r => {
+              const stripped = this.stripIdentifiedCheck(r.stripped);
+              return this.buildCheckRuleBlock(stripped, mqSources, hoisted);
+            })));
+          }
+
+          stmts.push(ifStmt(group.flagCondition, innerStmts));
+        } else {
+          for (const rule of group.rules) {
+            const effective = rule.original;
+            if (effective.statExpr && this.usesMagicalStatsOnly(effective.statExpr, quality)) {
+              if (!pendingMagicalSource) pendingMagicalSource = effective.source;
+              const stripped = this.stripIdentifiedCheck(effective);
+              pendingMagicalBlocks.push(this.buildCheckRuleBlock(stripped, mqSources, hoisted));
+            } else {
+              pendingBaseBlocks.push(this.buildCheckRuleBlock(effective, mqSources, hoisted));
+            }
+          }
+        }
+      }
+      flushPending();
     }
-    flushPending();
 
     return stmts;
   }
@@ -807,13 +825,24 @@ export class EmitterAST {
     return stmts;
   }
 
-  private usesMagicalStatsOnly(expr: ExprNode | null): boolean {
+  // Returns the set of stat IDs readable on unidentified items at a given quality.
+  // Base stats (defense, damage, durability) are always readable.
+  // Sockets (194) are only visible on normal/superior (quality <= 3).
+  private static readonly BASE_STATS_NORMAL = new Set([...BASE_STATS, 194]);
+
+  private getReadableStats(quality: number | null): Set<number> {
+    if (quality !== null && quality <= 3) return EmitterAST.BASE_STATS_NORMAL;
+    return BASE_STATS;
+  }
+
+  private usesMagicalStatsOnly(expr: ExprNode | null, quality?: number | null): boolean {
     if (!expr) return false;
     const statIds = new Set<number>();
     this.collectStatNumbers(expr, statIds);
     if (statIds.size === 0) return false;
+    const readable = this.getReadableStats(quality ?? null);
     for (const id of statIds) {
-      if (BASE_STATS.has(id)) return false;
+      if (readable.has(id)) return false;
     }
     return true;
   }

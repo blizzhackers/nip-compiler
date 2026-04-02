@@ -356,12 +356,74 @@ const TEST_ITEMS: TestItem[] = [
   { label: 'eth non-unique duskshroud', mock: { classid: cid('duskshroud'), quality: qid('rare'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 100 } } },
   { label: 'normal broadsword 4os', mock: { classid: cid('broadsword'), quality: qid('normal'), itemType: tid('sword'), stats: { [sidKey('sockets')]: 4 } } },
   { label: 'magic amulet low mf', mock: { classid: cid('amulet'), quality: qid('magic'), itemType: tid('amulet'), stats: { [sidKey('itemmagicbonus')]: 35 } } },
+  // --- Various weapon types ---
+  { label: 'unique flail (HotO base)', mock: { classid: cid('flail'), quality: qid('unique'), itemType: tid('mace'), stats: { [sidKey('itemallskills')]: 3, [sidKey('fcr')]: 40 } } },
+  { label: 'eth thresher unique', mock: { classid: cid('thresher'), quality: qid('unique'), itemType: tid('polearm'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddamage')]: 300 } } },
+  { label: 'eth giant thresher unique', mock: { classid: cid('giantthresher'), quality: qid('unique'), itemType: tid('polearm'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddamage')]: 280 } } },
+  { label: 'unique caduceus', mock: { classid: cid('caduceus'), quality: qid('unique'), itemType: tid('scepter'), stats: { [sidKey('itemallskills')]: 2 } } },
+  { label: 'normal crystal sword', mock: { classid: cid('crystalsword'), quality: qid('normal'), itemType: tid('sword'), stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'rare longbow', mock: { classid: cid('longbow'), quality: qid('rare'), itemType: tid('bow'), stats: { [sidKey('enhanceddamage')]: 80 } } },
+  { label: 'magic katar', mock: { classid: cid('katar'), quality: qid('magic'), itemType: tid('handtohand'), stats: { [sidKey('ias')]: 20 } } },
+  // --- Various armor types ---
+  { label: 'unique mageplate (Enigma base)', mock: { classid: cid('mageplate'), quality: qid('unique'), itemType: tid('armor'), stats: { [sidKey('itemallskills')]: 2, [sidKey('enhanceddefense')]: 200 } } },
+  { label: 'eth mageplate unique', mock: { classid: cid('mageplate'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x400000, stats: { [sidKey('enhanceddefense')]: 200 } } },
+  { label: 'unique greaves (sandstorm trek)', mock: { classid: cid('greaves'), quality: qid('unique'), itemType: tid('boots'), stats: { [sidKey('frw')]: 20, [sidKey('strength')]: 15, [sidKey('vitality')]: 15 } } },
+  { label: 'unique gauntlets', mock: { classid: cid('gauntlets'), quality: qid('unique'), itemType: tid('gloves'), stats: { [sidKey('ias')]: 20, [sidKey('strength')]: 25 } } },
+  { label: 'unique lightgauntlets (magefist)', mock: { classid: cid('lightgauntlets'), quality: qid('unique'), itemType: tid('gloves'), stats: { [sidKey('fcr')]: 20 } } },
+  { label: 'rare helm with life+res', mock: { classid: cid('basinet'), quality: qid('rare'), itemType: tid('helm'), stats: { [sidKey('maxhp')]: 40, [sidKey('fireresist')]: 30, [sidKey('lightresist')]: 20, [sidKey('coldresist')]: 15 } } },
+  // --- Charms ---
+  { label: 'small charm life+mf', mock: { classid: cid('smallcharm'), quality: qid('magic'), itemType: tid('smallcharm'), stats: { [sidKey('maxhp')]: 20, [sidKey('itemmagicbonus')]: 7 } } },
+  { label: 'large charm life', mock: { classid: cid('largecharm'), quality: qid('magic'), itemType: tid('largecharm'), stats: { [sidKey('maxhp')]: 35 } } },
+  { label: 'unid small charm', mock: { classid: cid('smallcharm'), quality: qid('magic'), itemType: tid('smallcharm'), flags: 0 } },
+  // --- Gems and misc ---
+  { label: 'perfect amethyst', mock: { classid: cid('perfectamethyst'), quality: qid('normal'), itemType: tid('gem') } },
+  { label: 'perfect topaz', mock: { classid: cid('perfecttopaz'), quality: qid('normal'), itemType: tid('gem') } },
+  { label: 'skull', mock: { classid: cid('skull'), quality: qid('normal'), itemType: tid('gem') } },
+  // --- Maxquantity items (rules have # [maxquantity] == N) ---
+  { label: 'unique studded leather (mq=1)', mock: { classid: cid('studdedleather'), quality: qid('unique'), itemType: tid('armor') } },
+  { label: 'unique greaves classic (mq=1)', mock: { classid: cid('greaves'), quality: qid('unique'), itemType: tid('boots') } },
+  { label: 'unique skullcap (mq=1)', mock: { classid: cid('skullcap'), quality: qid('unique'), itemType: tid('helm') } },
+  { label: 'set ringmail ed40 (mq=1)', mock: { classid: cid('ringmail'), quality: qid('set'), itemType: tid('armor'), stats: { [sidKey('enhanceddefense')]: 40 } } },
+  { label: 'set sabre tohit75 (mq=1)', mock: { classid: cid('sabre'), quality: qid('set'), itemType: tid('sword'), stats: { [sidKey('tohit')]: 75 } } },
+  { label: 'set ring hp20 (mq=2)', mock: { classid: cid('ring'), quality: qid('set'), itemType: tid('ring'), stats: { [sidKey('maxhp')]: 20 } } },
+  // --- Tier items (follower.nip has tier rules) ---
+  { label: 'gloves with hp (tier=1)', mock: { classid: cid('gauntlets'), quality: qid('magic'), itemType: tid('gloves'), stats: { [sidKey('maxhp')]: 15 } } },
+  { label: 'gloves with hp+mana (tier=2)', mock: { classid: cid('gauntlets'), quality: qid('magic'), itemType: tid('gloves'), stats: { [sidKey('maxhp')]: 15, [sidKey('maxmana')]: 15 } } },
+  { label: 'unique heavygloves hp (tier=3)', mock: { classid: cid('heavygloves'), quality: qid('unique'), itemType: tid('gloves'), stats: { [sidKey('maxhp')]: 20 } } },
+  { label: 'set lightgauntlets coldres (tier=101)', mock: { classid: cid('lightgauntlets'), quality: qid('set'), itemType: tid('gloves'), stats: { [sidKey('coldresist')]: 30 } } },
+  { label: 'lightbelt (tier=1)', mock: { classid: cid('lightbelt'), quality: qid('normal'), itemType: tid('belt') } },
+  { label: 'lightbelt with hp (tier=2)', mock: { classid: cid('lightbelt'), quality: qid('magic'), itemType: tid('belt'), stats: { [sidKey('maxhp')]: 20 } } },
+  { label: 'set heavybelt mindmg (tier=101)', mock: { classid: cid('heavybelt'), quality: qid('set'), itemType: tid('belt'), stats: { [sidKey('mindamage')]: 5 } } },
+  { label: 'boots with 30 total res (tier=1)', mock: { classid: cid('chainboots'), quality: qid('magic'), itemType: tid('boots'), stats: { [sidKey('fireresist')]: 10, [sidKey('lightresist')]: 10, [sidKey('coldresist')]: 10 } } },
+  { label: 'boots with 50 total res (tier=3)', mock: { classid: cid('chainboots'), quality: qid('magic'), itemType: tid('boots'), stats: { [sidKey('fireresist')]: 20, [sidKey('lightresist')]: 15, [sidKey('coldresist')]: 15 } } },
+  { label: 'unique greaves fireres (tier=101)', mock: { classid: cid('greaves'), quality: qid('unique'), itemType: tid('boots'), stats: { [sidKey('fireresist')]: 40 } } },
+  { label: 'helm with hp (tier=1)', mock: { classid: cid('casque'), quality: qid('magic'), itemType: tid('helm'), stats: { [sidKey('maxhp')]: 20 } } },
+  { label: 'rare helm hp30+res40 (tier=101)', mock: { classid: cid('casque'), quality: qid('rare'), itemType: tid('helm'), stats: { [sidKey('maxhp')]: 35, [sidKey('fireresist')]: 15, [sidKey('lightresist')]: 15, [sidKey('coldresist')]: 15 } } },
+  { label: 'set crown fireres+lightres (tier=101)', mock: { classid: cid('crown'), quality: qid('set'), itemType: tid('helm'), stats: { [sidKey('fireresist')]: 30, [sidKey('lightresist')]: 30 } } },
+  // --- Crafted quality ---
+  { label: 'crafted amulet fcr', mock: { classid: cid('amulet'), quality: qid('crafted'), itemType: tid('amulet'), stats: { [sidKey('fcr')]: 20, [sidKey('fireresist')]: 25 } } },
+  { label: 'crafted ring', mock: { classid: cid('ring'), quality: qid('crafted'), itemType: tid('ring'), stats: { [sidKey('fcr')]: 10, [sidKey('maxhp')]: 35 } } },
+  // --- Unid variants for items that have base stats ---
+  { label: 'id normal monarch def148 4os', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('defense')]: 148, [sidKey('sockets')]: 4 } } },
+  { label: 'id normal monarch def100 4os', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0x10, stats: { [sidKey('defense')]: 100, [sidKey('sockets')]: 4 } } },
+  { label: 'unid normal monarch 4os (sockets visible on normal)', mock: { classid: cid('monarch'), quality: qid('normal'), itemType: tid('shield'), flags: 0, stats: { [sidKey('defense')]: 148, [sidKey('sockets')]: 4 } } },
+  // Normal/superior items always have identified flag in-game — unid normal is impossible.
+  // So sockets (194) being quality-aware only matters as an optimization detail, not a correctness issue.
+  { label: 'unid eth sacred armor', mock: { classid: cid('sacredarmor'), quality: qid('unique'), itemType: tid('armor'), flags: 0x400000, stats: { [sidKey('defense')]: 900 } } },
+  { label: 'unid non-eth unique shako def141', mock: { classid: cid('shako'), quality: qid('unique'), itemType: tid('helm'), flags: 0, stats: { [sidKey('defense')]: 141 } } },
+  { label: 'unid non-eth unique shako def130', mock: { classid: cid('shako'), quality: qid('unique'), itemType: tid('helm'), flags: 0, stats: { [sidKey('defense')]: 130 } } },
+  // --- Runeword items ---
+  { label: 'runeword armor eth 4os', mock: { classid: cid('archonplate'), quality: qid('unique'), itemType: tid('armor'), flags: 0x10 | 0x4000000 | 0x400000, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'runeword shield 4os', mock: { classid: cid('monarch'), quality: qid('unique'), itemType: tid('shield'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 4 } } },
+  { label: 'runeword sword non-eth 6os', mock: { classid: cid('phaseblade'), quality: qid('unique'), itemType: tid('sword'), flags: 0x10 | 0x4000000, stats: { [sidKey('sockets')]: 6 } } },
+  // --- Multiple classids/unknown ---
+  { label: 'unknown classid 777', mock: { classid: 777, quality: qid('normal'), itemType: tid('sword') } },
+  { label: 'unknown classid 888 unique', mock: { classid: 888, quality: qid('unique'), itemType: tid('armor'), stats: { [sidKey('defense')]: 200 } } },
   // --- No match ---
   { label: 'normal ring', mock: { classid: cid('ring'), quality: qid('normal'), itemType: tid('ring') } },
   { label: 'random unknown classid', mock: { classid: 999, quality: qid('normal'), itemType: 99 } },
   { label: 'low quality amulet', mock: { classid: cid('amulet'), quality: qid('lowquality'), itemType: tid('amulet') } },
   { label: 'normal sword', mock: { classid: cid('broadsword'), quality: qid('normal'), itemType: tid('sword') } },
-  { label: 'unique unknown classid', mock: { classid: 888, quality: qid('unique'), itemType: 50, stats: { [sidKey('maxhp')]: 100 } } },
   { label: 'normal potion', mock: { classid: 500, quality: qid('normal'), itemType: tid('potion') } },
 ];
 
