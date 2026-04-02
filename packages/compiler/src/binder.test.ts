@@ -450,4 +450,128 @@ describe('Binder', () => {
       assert.ok(info[0].message.includes('superior'));
     });
   });
+
+  describe('JIP [unique] keyword', () => {
+    const jipBinder = () => new Binder({
+      language: 'jip',
+      knownStats: new Set(Object.keys(d2Aliases.stat)),
+      knownPropertyValues: new Map([
+        ['name', new Set(Object.keys(d2Aliases.classId))],
+        ['quality', new Set(Object.keys(d2Aliases.quality))],
+      ]),
+    });
+
+    it('rewrites [unique] == HarlequinCrest to [name] == shako && [quality] == unique', () => {
+      const node = parser.parseLine('[unique] == HarlequinCrest');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 0);
+      const expr = node.property!.expr as BinaryExprNode;
+      assert.strictEqual(expr.op, '&&');
+      // LHS: [name] == shako
+      const nameExpr = expr.left as BinaryExprNode;
+      assert.strictEqual((nameExpr.left as KeywordExprNode).name, 'name');
+      assert.strictEqual((nameExpr.right as any).name, 'shako');
+      // RHS: [quality] == unique
+      const qualExpr = expr.right as BinaryExprNode;
+      assert.strictEqual((qualExpr.left as KeywordExprNode).name, 'quality');
+      assert.strictEqual((qualExpr.right as any).name, 'unique');
+      // No stats needed (only unique for this classid)
+      assert.strictEqual(node.stats, null);
+    });
+
+    it('rewrites [unique] == TheStoneOfJordan with discriminator stat', () => {
+      const node = parser.parseLine('[unique] == TheStoneOfJordan');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 0);
+      // Should have stats now (discriminator)
+      assert.ok(node.stats, 'should inject stat discriminator');
+      const statExpr = node.stats!.expr as BinaryExprNode;
+      assert.strictEqual(statExpr.op, '==');
+      assert.strictEqual((statExpr.left as KeywordExprNode).name, 'maxmana');
+    });
+
+    it('merges discriminator with user stats', () => {
+      const node = parser.parseLine('[unique] == TheStoneOfJordan # [defense] >= 50');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 0);
+      // Stats should be: discriminator && user stat
+      const statExpr = node.stats!.expr as BinaryExprNode;
+      assert.strictEqual(statExpr.op, '&&');
+    });
+
+    it('preserves meta section', () => {
+      const node = parser.parseLine('[unique] == HarlequinCrest # # [tier] == 1');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 0);
+      assert.ok(node.meta);
+      assert.strictEqual(node.meta!.entries[0].key, 'tier');
+    });
+
+    it('errors on unknown unique name', () => {
+      const node = parser.parseLine('[unique] == UnknownItem');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 1);
+      assert.strictEqual(diagnostics[0].severity, DiagnosticSeverity.Error);
+      assert.ok(diagnostics[0].message.includes('Unknown unique item'));
+    });
+
+    it('RainbowFacet: no discriminator (only unique for jewel)', () => {
+      const node = parser.parseLine('[unique] == RainbowFacet');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 0);
+      assert.strictEqual(node.stats, null);
+      const expr = node.property!.expr as BinaryExprNode;
+      const nameExpr = expr.left as BinaryExprNode;
+      assert.strictEqual((nameExpr.right as any).name, 'jewel');
+    });
+
+    it('[unique] is invalid in nip mode', () => {
+      const node = parser.parseLine('[unique] == HarlequinCrest');
+      const binder = new Binder(); // nip mode
+      const { diagnostics } = binder.bindLine(node);
+      assert.ok(diagnostics.length > 0);
+      assert.ok(diagnostics[0].message.includes('Unknown property keyword'));
+    });
+  });
+
+  describe('JIP [set] keyword', () => {
+    const jipBinder = () => new Binder({
+      language: 'jip',
+      knownStats: new Set(Object.keys(d2Aliases.stat)),
+    });
+
+    it('rewrites [set] == TalRashasAdjudication to [name] == amulet && [quality] == set', () => {
+      const node = parser.parseLine('[set] == TalRashasAdjudication');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 0);
+      const expr = node.property!.expr as BinaryExprNode;
+      assert.strictEqual(expr.op, '&&');
+      const nameExpr = expr.left as BinaryExprNode;
+      assert.strictEqual((nameExpr.right as any).name, 'amulet');
+    });
+
+    it('expands [set] == TalRashasWrappings to 5 lines', () => {
+      const node = parser.parseLine('[set] == TalRashasWrappings');
+      const binder = jipBinder();
+      const { expandedLines, diagnostics } = binder.bindLine(node);
+      // First line is rewritten in place, rest are in expandedLines
+      assert.ok(expandedLines);
+      assert.strictEqual(expandedLines!.length, 4); // 5 total - 1 original = 4 expanded
+    });
+
+    it('errors on unknown set item', () => {
+      const node = parser.parseLine('[set] == FakeSetItem');
+      const binder = jipBinder();
+      const { diagnostics } = binder.bindLine(node);
+      assert.strictEqual(diagnostics.length, 1);
+      assert.ok(diagnostics[0].message.includes('Unknown set item'));
+    });
+  });
 });

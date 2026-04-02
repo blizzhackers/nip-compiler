@@ -1,5 +1,5 @@
-import { Parser, Binder, Emitter, OutputFormat, DispatchStrategy, d2Aliases, DiagnosticAnalyzer, Analyzer, Grouper } from '@blizzhackers/nip-compiler';
-import type { Diagnostic } from '@blizzhackers/nip-compiler';
+import { Parser, Binder, Emitter, OutputFormat, DispatchStrategy, d2Aliases, DiagnosticAnalyzer, Analyzer, Grouper, printLine } from '@blizzhackers/nip-compiler';
+import type { Diagnostic, JipLanguage } from '@blizzhackers/nip-compiler';
 
 export interface CompileOptions {
   kolbot: boolean;
@@ -20,6 +20,7 @@ interface CompileSuccess {
   code: string;
   ruleCount: number;
   warnings: Diagnostic[];
+  transpiledNip?: string;
 }
 
 interface CompileError {
@@ -40,7 +41,7 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
       ['color', new Set(Object.keys(d2Aliases.color))],
       ['class', new Set(Object.keys(d2Aliases.class))],
     ]);
-    const binder = new Binder({
+    const binderOptions = {
       knownStats,
       knownPropertyValues,
       propertyAliases: {
@@ -49,13 +50,15 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
         type: d2Aliases.type,
         quality: d2Aliases.quality,
       },
-    });
+    };
 
     let ruleCount = 0;
     const errors: string[] = [];
     const parsed = files
       .filter(f => f.content.trim().length > 0)
       .map(f => {
+        const language: JipLanguage = f.name.endsWith('.jip') ? 'jip' : 'nip';
+        const binder = new Binder({ ...binderOptions, language });
         const ast = parser.parseFile(f.content, f.name);
         const result = binder.bindFile(ast);
         for (const diag of result.diagnostics) {
@@ -73,6 +76,24 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
 
     if (parsed.length === 0) {
       return { success: false, error: 'No files to compile' };
+    }
+
+    // Generate transpiled NIP for any .jip files (after binder rewrites AST)
+    const hasJip = files.some(f => f.name.endsWith('.jip'));
+    let transpiledNip: string | undefined;
+    if (hasJip) {
+      const nipLines: string[] = [];
+      for (const file of parsed) {
+        if (!file.filename.endsWith('.jip')) continue;
+        nipLines.push(`// ${file.filename}`);
+        for (const line of file.lines) {
+          if (line.property || line.stats) {
+            const nip = printLine(line);
+            nipLines.push(nip + (line.comment ? ' // ' + line.comment.trim() : ''));
+          }
+        }
+      }
+      transpiledNip = nipLines.join('\n');
     }
 
     const emitter = new Emitter({
@@ -104,7 +125,7 @@ export function compile(files: NipFile[], options: CompileOptions): CompileResul
       /\/\/# sourceMappingURL=.*$/m,
       `//# sourceMappingURL=data:application/json;base64,${mapBase64}`,
     );
-    return { success: true, code, ruleCount, warnings };
+    return { success: true, code, ruleCount, warnings, transpiledNip };
   } catch (e: any) {
     return { success: false, error: e.message ?? String(e) };
   }

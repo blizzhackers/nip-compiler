@@ -132,6 +132,9 @@ export class EmitterAST {
     body.push(...this.helperFunctions);
     body.push(ciFunc);
 
+    // Compute fileBits before checkItem/tier functions that inline it
+    this.fileBits = Math.max(1, Math.ceil(Math.log2(this.fileTable.length + 1)));
+
     // checkItem wrapper
     body.push(this.buildCheckItemFunction());
 
@@ -145,11 +148,8 @@ export class EmitterAST {
       init: array(this.fileTable.map(f => literal(f))),
     }]));
     // Packed source table: file ID in low bits, line number in high bits.
-    // Bit width for file ID is dynamic based on actual file count.
-    // encode: (lineNumber << _b) | fileId
-    // decode: file = _f[e & mask], line = e >>> _b
-    // fileBits is inlined as a literal — no runtime variable needed
-    this.fileBits = Math.max(1, Math.ceil(Math.log2(this.fileTable.length + 1)));
+    // encode: (lineNumber << fileBits) | fileId
+    // decode: file = _f[e & mask], line = e >>> fileBits
     body.push(varDecl('const', [{
       id: '_s',
       init: array(this.sourceTable.map(([f, l]) => literal((l << this.fileBits) | f))),
@@ -786,9 +786,15 @@ export class EmitterAST {
       return 0;
     });
 
-    // Dead code elimination: unconditional match makes everything after unreachable
+    // Dead code elimination: unconditional match makes everything after unreachable,
+    // and duplicate conditions (identical residualProperty + statExpr) are skipped
+    // since the first match already returns.
     const alive: GroupedRule[] = [];
+    const seenConditions = new Set<string>();
     for (const rule of sorted) {
+      const condKey = JSON.stringify({ p: rule.residualProperty, s: rule.statExpr });
+      if (seenConditions.has(condKey)) continue;
+      seenConditions.add(condKey);
       alive.push(rule);
       if (!rule.residualProperty && !rule.statExpr) break;
     }

@@ -1,5 +1,6 @@
 import type { languages, Position, editor } from 'monaco-editor';
-import { d2Aliases } from '@blizzhackers/nip-compiler';
+import { d2Aliases, getAllUniqueNames, getAllSetItemNames, getAllSetNames } from '@blizzhackers/nip-compiler';
+import { JIP_LANGUAGE_ID } from './nip-language';
 
 const propertyKeywords = [
   'name', 'type', 'quality', 'flag', 'class', 'level', 'charlvl',
@@ -7,6 +8,12 @@ const propertyKeywords = [
   'wsm', 'weaponspeed', 'minimumsockets', 'strreq', 'dexreq',
   '2handed', 'distance',
 ];
+
+const jipPropertyKeywords = [...propertyKeywords, 'unique', 'set'];
+
+const uniqueNames = getAllUniqueNames();
+const setItemNames = getAllSetItemNames();
+const setFullNames = getAllSetNames();
 
 const propertyAliases: Record<string, string> = {
   n: 'name', q: 'quality', id: 'classid', t: 'type',
@@ -115,13 +122,16 @@ export function createCompletionProvider(monaco: typeof import('monaco-editor'))
       const inMeta = hashCount >= 2;
       const afterHash = hashCount >= 1;
 
+      const isJip = model.getLanguageId() === JIP_LANGUAGE_ID;
+      const kwList = isJip ? jipPropertyKeywords : propertyKeywords;
+
       if (inBracket) {
         if (inMeta) {
           suggestions.push(...toSuggestions(metaKeywords, Kind.Property, range, 'meta'));
         } else if (afterHash) {
           suggestions.push(...toSuggestions(statKeywords, Kind.Field, range, 'stat'));
         } else {
-          suggestions.push(...toSuggestions(propertyKeywords, Kind.Keyword, range, 'property', l => propertyPriority[l] ?? l));
+          suggestions.push(...toSuggestions(kwList, Kind.Keyword, range, 'property', l => propertyPriority[l] ?? l));
           suggestions.push(...toSuggestions(Object.keys(propertyAliases), Kind.Keyword, range, 'alias'));
         }
       } else if (!afterHash || inMeta) {
@@ -157,6 +167,38 @@ export function createCompletionProvider(monaco: typeof import('monaco-editor'))
               break;
             case 'class':
               suggestions.push(...toSuggestions(classNames, Kind.Value, range, 'class'));
+              break;
+            case 'unique':
+              if (isJip) {
+                suggestions.push(...uniqueNames.map(u => ({
+                  label: u.name,
+                  kind: Kind.Value,
+                  insertText: u.name,
+                  range,
+                  detail: `unique ${u.classIdName} (${u.classId})`,
+                  sortText: u.name,
+                })));
+              }
+              break;
+            case 'set':
+              if (isJip) {
+                suggestions.push(...setItemNames.map(s => ({
+                  label: s.name,
+                  kind: Kind.Value,
+                  insertText: s.name,
+                  range,
+                  detail: `${s.setName} — ${s.classIdName}`,
+                  sortText: `0_${s.name}`,
+                })));
+                suggestions.push(...setFullNames.map(s => ({
+                  label: s.name,
+                  kind: Kind.Module,
+                  insertText: s.name,
+                  range,
+                  detail: `full set (${s.pieces} pieces)`,
+                  sortText: `1_${s.name}`,
+                })));
+              }
               break;
           }
         }

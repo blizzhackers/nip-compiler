@@ -471,7 +471,7 @@ describe('Parser', () => {
     });
 
     it('includes filename in parse errors', () => {
-      const input = '[name] ==\n[valid] == 1';
+      const input = '[name] == ring\n[name] == ';
       try {
         parser.parseFile(input, 'broken.nip');
         assert.fail('should have thrown');
@@ -588,6 +588,67 @@ describe('Parser', () => {
         assert.ok(e instanceof ParseError);
         assert.strictEqual(e.line, 3, 'error should be on line 3, not line 1');
       }
+    });
+  });
+
+  describe('multiline continuation', () => {
+    it('next line starting with && joins', () => {
+      const file = parser.parseFile('[name] == ring\n&& [quality] == unique', 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+      assert.strictEqual(file.lines[0].lineNumber, 1);
+    });
+
+    it('next line starting with || joins', () => {
+      const file = parser.parseFile('[name] == ring\n|| [name] == amulet', 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+    });
+
+    it('next line starting with == joins', () => {
+      const file = parser.parseFile('[name]\n== ring', 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+    });
+
+    it('previous line ending with && continues', () => {
+      const file = parser.parseFile('[name] == ring &&\n[quality] == unique', 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+    });
+
+    it('previous line ending with == continues', () => {
+      const file = parser.parseFile('[name] ==\nring', 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+    });
+
+    it('previous line ending with [ continues', () => {
+      const file = parser.parseFile('[name] == ring && [\nquality] == unique', 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+    });
+
+    it('# does NOT trigger continuation (either direction)', () => {
+      // # at end of line: valid empty stat section, not incomplete
+      const file1 = parser.parseFile('[name] == ring #\n[name] == amulet', 'test.nip');
+      assert.strictEqual(file1.lines.length, 2);
+      // # at start of line: standalone stat section, not continuation
+      const file2 = parser.parseFile('[name] == ring\n# [defense] >= 50', 'test.nip');
+      assert.strictEqual(file2.lines.length, 2);
+    });
+
+    it('multiple continuation lines via trailing operators', () => {
+      const input = '[name] == ring &&\n[quality] == unique';
+      const file = parser.parseFile(input, 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
+      assert.ok(file.lines[0].property);
+    });
+
+    it('two separate rules stay separate', () => {
+      const input = '[name] == ring\n[name] == amulet';
+      const file = parser.parseFile(input, 'test.nip');
+      assert.strictEqual(file.lines.length, 2);
+    });
+
+    it('comments between continuations are skipped', () => {
+      const input = '[name] == ring &&\n// comment\n[quality] == unique';
+      const file = parser.parseFile(input, 'test.nip');
+      assert.strictEqual(file.lines.length, 1);
     });
   });
 });

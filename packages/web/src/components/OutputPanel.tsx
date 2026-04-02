@@ -1,29 +1,39 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import type { CompileResult } from '../compiler';
+import { NIP_LANGUAGE_ID } from '../nip-language';
 
 interface Props {
   result: CompileResult | null;
   onNavigate?: (file: string, line: number) => void;
 }
 
+type OutputTab = 'js' | 'nip';
+
 export function OutputPanel({ result, onNavigate }: Props) {
+  const [activeTab, setActiveTab] = useState<OutputTab>('js');
+
+  const hasNip = result?.success && result.transpiledNip;
+  const displayTab = hasNip ? activeTab : 'js';
+
   const handleCopy = useCallback(() => {
-    if (result?.success) {
-      navigator.clipboard.writeText(result.code);
-    }
-  }, [result]);
+    if (!result?.success) return;
+    const text = displayTab === 'nip' ? result.transpiledNip! : result.code;
+    navigator.clipboard.writeText(text);
+  }, [result, displayTab]);
 
   const handleDownload = useCallback(() => {
     if (!result?.success) return;
-    const blob = new Blob([result.code], { type: 'application/javascript' });
+    const isNip = displayTab === 'nip';
+    const text = isNip ? result.transpiledNip! : result.code;
+    const blob = new Blob([text], { type: isNip ? 'text/plain' : 'application/javascript' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'checkItem.js';
+    a.download = isNip ? 'transpiled.nip' : 'checkItem.js';
     a.click();
     URL.revokeObjectURL(url);
-  }, [result]);
+  }, [result, displayTab]);
 
   if (!result) {
     return (
@@ -40,7 +50,7 @@ export function OutputPanel({ result, onNavigate }: Props) {
         <h3>Compilation Error</h3>
         <div className="error-list">
           {errorLines.map((line, i) => {
-            const match = line.match(/^(\S+\.nip):(\d+):\s*(.*)$/);
+            const match = line.match(/^(\S+\.(?:nip|jip)):(\d+):\s*(.*)$/);
             if (match && onNavigate) {
               const [, file, lineNum, msg] = match;
               return (
@@ -60,6 +70,18 @@ export function OutputPanel({ result, onNavigate }: Props) {
   return (
     <div className="output-panel">
       <div className="output-header">
+        {hasNip && (
+          <div className="output-tabs">
+            <button
+              className={displayTab === 'js' ? 'active' : ''}
+              onClick={() => setActiveTab('js')}
+            >JavaScript</button>
+            <button
+              className={displayTab === 'nip' ? 'active' : ''}
+              onClick={() => setActiveTab('nip')}
+            >NIP (transpiled)</button>
+          </div>
+        )}
         <span className="output-stats">
           {result.ruleCount} rules, {(result.code.length / 1024).toFixed(1)} KB
         </span>
@@ -70,9 +92,9 @@ export function OutputPanel({ result, onNavigate }: Props) {
       </div>
       <div className="output-editor">
         <MonacoEditor
-          language="javascript"
+          language={displayTab === 'nip' ? NIP_LANGUAGE_ID : 'javascript'}
           theme="nip-dark"
-          value={result.code}
+          value={displayTab === 'nip' ? result.transpiledNip! : result.code}
           options={{
             readOnly: true,
             fontSize: 12,

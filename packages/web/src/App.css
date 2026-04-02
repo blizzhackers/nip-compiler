@@ -443,6 +443,22 @@ body {
   accent-color: #7ee787;
 }
 
+.options-bar select {
+  background: #111820;
+  color: #6b7280;
+  border: 1px solid #1a1f29;
+  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  font-family: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+
+.options-bar select:hover {
+  color: #7ee787;
+  border-color: #7ee787;
+}
+
 .compile-btn {
   padding: 0.3rem 1rem;
   background: #0e2a10;
@@ -527,6 +543,33 @@ body {
   background: #0d1117;
   position: sticky;
   top: 0;
+}
+
+.output-tabs {
+  display: flex;
+  gap: 0;
+}
+
+.output-tabs button {
+  padding: 0.2rem 0.6rem;
+  background: transparent;
+  color: #4a5568;
+  border: 1px solid #1a1f29;
+  border-radius: 3px 3px 0 0;
+  font-family: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.output-tabs button.active {
+  color: #7ee787;
+  border-bottom-color: #0d1117;
+  background: #0d1117;
+}
+
+.output-tabs button:hover:not(.active) {
+  color: #6b7280;
 }
 
 .output-stats {
