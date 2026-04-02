@@ -681,4 +681,40 @@ describe('E2E: emitter optimization correctness', () => {
       assert.strictEqual(mod.getMercTier(item(999, qid('normal'))), -1);
     });
   });
+
+  describe('impossible quality filtering', () => {
+    it('rune with no quality restriction matches any quality', () => {
+      // [name] == berrune has no quality check — matches whatever quality the item has
+      const mod = compile(['[name] == berrune']);
+      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('normal'))), 1);
+      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('unique'))), 1); // no quality filter
+    });
+
+    it('rune never needs unid bail (always identified)', () => {
+      const mod = compile(['[name] == berrune']);
+      // Even with flags=0, a rune is "normal" quality which is always identified
+      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('normal'), {}, 0)), 1);
+    });
+
+    it('charm rule with quality==rare gets no handler (charms cant be rare)', () => {
+      const mod = compile([
+        '[name] == smallcharm && [quality] == magic # [maxhp] >= 20',
+        '[name] == smallcharm && [quality] == rare # [maxhp] >= 20',
+      ]);
+      // Magic charm matches
+      assert.strictEqual(mod.checkItem(item(cid('smallcharm'), qid('magic'), { [sid('maxhp')]: 20 })), 1);
+      // Rare charm: impossible in-game. The rule is dead code — should not match
+      // even if we feed it a rare quality item (which can't exist)
+      assert.strictEqual(mod.checkItem(item(cid('smallcharm'), qid('rare'), { [sid('maxhp')]: 20 })), 0);
+    });
+
+    it('type-expanded rule skips impossible quality on classid', () => {
+      // [type] == armor && [quality] == rare — expanded to all armor classids
+      // but only for rare quality. This tests that the handler exists for valid combos
+      const mod = compile(['[type] == armor && [quality] == rare # [enhanceddefense] >= 100']);
+      // Rare archonplate — valid combo, should work
+      const rareArmor = { ...item(cid('archonplate'), qid('rare'), { [sid('enhanceddefense')]: 100 }), itemType: 3 };
+      assert.strictEqual(mod.checkItem(rareArmor), 1);
+    });
+  });
 });

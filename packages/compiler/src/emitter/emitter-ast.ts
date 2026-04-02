@@ -310,14 +310,24 @@ export class EmitterAST {
       }
 
       for (const entry of qualityEntries) {
-        const sig = entry.rules.map(r => r.source).join('|');
-        allEntries.push({ sig, keys: entry.keys, quality: entry.quality, rules: entry.rules });
+        // Filter out impossible classid+quality combos
+        const validKeys = entry.keys.filter(k => {
+          const cid = k & 0x3FF;
+          const q = (k >> 10) & 0xF;
+          return this.canHaveQuality(cid, q);
+        });
+        if (validKeys.length > 0) {
+          const sig = entry.rules.map(r => r.source).join('|');
+          allEntries.push({ sig, keys: validKeys, quality: entry.quality, rules: entry.rules });
+        }
       }
 
       if (trueCatchAll.length > 0) {
         const keys: number[] = [];
         for (let q = EmitterAST.MIN_QUALITY; q <= EmitterAST.MAX_QUALITY; q++) {
-          if (!mergedMap.has(q)) keys.push(classid | (q << 10));
+          if (!mergedMap.has(q) && this.canHaveQuality(classid, q)) {
+            keys.push(classid | (q << 10));
+          }
         }
         if (keys.length > 0) {
           const sig = trueCatchAll.map(r => r.source).join('|') + '#catchall';
@@ -376,7 +386,7 @@ export class EmitterAST {
 
     const caseEntries: { key: number; stmts: ESTree.Statement[] }[] = [];
     for (const [key, qualityMap] of groups) {
-      const stmts = this.buildQualityDispatch(qualityMap, mqSources, false);
+      const stmts = this.buildQualityDispatch(qualityMap, mqSources, false, key);
       caseEntries.push({ key, stmts });
     }
 
@@ -410,10 +420,35 @@ export class EmitterAST {
   private static readonly MIN_QUALITY = 1;
   private static readonly MAX_QUALITY = 8;
 
+  // Check if a classid can have the given quality based on its type properties.
+  // Returns false for impossible combos (e.g., rare charm, unique rune).
+  private canHaveQuality(classid: number, quality: number): boolean {
+    const props = this.getTypeProps(classid);
+    if (!props) return true; // unknown type — assume possible
+    // quality: 1=lowquality, 2=normal, 3=superior, 4=magic, 5=set, 6=rare, 7=unique, 8=crafted
+    if (quality <= 3) return true; // lowquality/normal/superior always possible
+    if (quality === 4) return props.magic || props.rare; // magic items
+    if (quality === 5) return props.rare; // set items need rare-capable type
+    if (quality === 6) return props.rare; // rare items
+    if (quality === 7) return props.rare; // unique items need rare-capable type
+    if (quality === 8) return props.rare; // crafted items
+    return true;
+  }
+
+  private getTypeProps(classid: number): { magic: boolean; rare: boolean; normal: boolean; charm: boolean } | undefined {
+    const c2t = this.config.aliases.classIdToType;
+    const tp = this.config.aliases.typeProperties;
+    if (!c2t || !tp) return undefined;
+    const typeId = c2t[classid];
+    if (typeId === undefined) return undefined;
+    return tp[typeId];
+  }
+
   private buildQualityDispatch(
     qualityMap: Map<number | null, GroupedRule[]>,
     mqSources: string[],
     isTier: boolean,
+    classid?: number,
   ): ESTree.Statement[] {
     const stmts: ESTree.Statement[] = [];
     const fixedQualities = [...qualityMap.entries()].filter(([q]) => q !== null);
@@ -451,6 +486,13 @@ export class EmitterAST {
       for (const q of group.qualities) {
         if (!mergedMap.has(q)) mergedMap.set(q, []);
         mergedMap.get(q)!.push(...group.rules);
+      }
+    }
+
+    // Filter out impossible quality cases based on type properties
+    if (classid !== undefined) {
+      for (const quality of [...mergedMap.keys()]) {
+        if (!this.canHaveQuality(classid, quality)) mergedMap.delete(quality);
       }
     }
 

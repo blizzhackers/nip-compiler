@@ -9,6 +9,8 @@ export interface AliasMapSet {
   color: Record<string, number>;
   class: Record<string, number>;
   typeToClassIds?: Record<number, number[]>;
+  classIdToType?: Record<number, number>;
+  typeProperties?: Record<number, { magic: boolean; rare: boolean; normal: boolean; charm: boolean }>;
 }
 
 export enum DispatchKind {
