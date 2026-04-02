@@ -255,11 +255,12 @@ export class EmitterAST {
           if (info.trivialReturn !== undefined) {
             // Trivial handler (just returns a constant) — inline directly
             cases.push(switchCase(literal(idx + 1), [returnStmt(literal(info.trivialReturn))]));
-          } else if (info.alwaysReturns && !hasFallback) {
-            // Handler always returns non-zero, no fallback needed — direct call
+          } else if (!hasFallback) {
+            // No type dispatch or catch-all after the switch — handler result IS the final result.
+            // return 0 from handler = return 0 from switch fallthrough = same thing.
             cases.push(switchCase(literal(idx + 1), [returnStmt(call(ident(info.name), [ident('i'), ident('_id')]))]));
           } else {
-            // Handler might return 0 (no match) — check result, fall through to type/catch-all
+            // Has fallback (type/catch-all) — check if handler matched, otherwise break to fallback
             cases.push(switchCase(literal(idx + 1), [block([
               varDecl('var', [{ id: '_r2', init: call(ident(info.name), [ident('i'), ident('_id')]) }]),
               ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
