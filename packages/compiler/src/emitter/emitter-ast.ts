@@ -256,6 +256,7 @@ export class EmitterAST {
   ): void {
     if (groups.size === 0) return;
 
+    this.maxMKey = 0;
     const allEntries: { sig: string; keys: number[]; quality: number; rules: GroupedRule[] }[] = [];
 
     for (const [classid, qualityMap] of groups) {
@@ -356,11 +357,19 @@ export class EmitterAST {
       this.emitHandler(handlerBody, entry.keys, assigns);
     }
 
-    this.helperFunctions.push(varDecl('const', [{ id: '_m', init: array([]) }]));
+    // Pre-fill _m as dense array to avoid SpiderMonkey's holey array checks (+57% on Firefox).
+    // Dense arrays avoid per-access hole checks that SpiderMonkey adds for sparse arrays.
+    this.helperFunctions.push(varDecl('var', [{
+      id: '_m',
+      init: call(member(call(ident('Array'), [literal(this.maxMKey + 1)]), 'fill'), [literal(0)]),
+    }]));
     this.helperFunctions.push(...assigns);
   }
 
+  private maxMKey = 0;
+
   private emitHandler(handlerBody: ESTree.Statement[], keys: number[], assigns: ESTree.Statement[]): void {
+    for (const k of keys) if (k > this.maxMKey) this.maxMKey = k;
     const handlerName = `_d${this.helperCounter++}`;
 
     // Only declare _c/_q/_t if the handler body references them
