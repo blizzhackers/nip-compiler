@@ -14,7 +14,7 @@ const parser = new Parser();
 const binder = new Binder();
 
 const testAliases: AliasMapSet = {
-  classId: { ring: 85, amulet: 520, duskshroud: 467, monarch: 443, archonplate: 415 },
+  classId: { ring: 522, amulet: 520, duskshroud: 429, monarch: 447, archonplate: 443 },
   type: { ring: 10, amulet: 12, armor: 3, shield: 2, helm: 37, boots: 15, belt: 19 },
   quality: { lowquality: 1, normal: 2, superior: 3, magic: 4, set: 5, rare: 6, unique: 7, crafted: 8 },
   flag: { identified: 0x10, ethereal: 0x400000, runeword: 0x4000000 },
@@ -40,7 +40,7 @@ describe('Analyzer', () => {
     const result = analyzer.analyze(line, 0, 'test.nip');
     assert.ok(result.dispatch);
     assert.strictEqual(result.dispatch!.kind, DispatchKind.Classid);
-    assert.deepStrictEqual(result.dispatch!.values, [85]);
+    assert.deepStrictEqual(result.dispatch!.values, [522]);
     assert.strictEqual(result.dispatch!.quality, 7);
   });
 
@@ -60,7 +60,7 @@ describe('Analyzer', () => {
     const result = analyzer.analyze(line, 0, 'test.nip');
     assert.ok(result.dispatch);
     assert.strictEqual(result.dispatch!.kind, DispatchKind.Classid);
-    assert.deepStrictEqual(result.dispatch!.values, [85, 520]);
+    assert.deepStrictEqual(result.dispatch!.values, [522, 520]);
   });
 
   it('returns null dispatch for flag-only rules', () => {
@@ -106,9 +106,9 @@ describe('Grouper', () => {
     binder.bindLine(line);
     const analyzed = [analyzer.analyze(line, 0, 'test.nip')];
     const plan = grouper.group(analyzed);
-    assert.ok(plan.classidGroups.has(85));
-    assert.ok(plan.classidGroups.get(85)!.has(7));
-    assert.strictEqual(plan.classidGroups.get(85)!.get(7)!.length, 1);
+    assert.ok(plan.classidGroups.has(522));
+    assert.ok(plan.classidGroups.get(522)!.has(7));
+    assert.strictEqual(plan.classidGroups.get(522)!.get(7)!.length, 1);
   });
 
   it('strips dispatch conditions from residual', () => {
@@ -116,7 +116,7 @@ describe('Grouper', () => {
     binder.bindLine(line);
     const analyzed = [analyzer.analyze(line, 0, 'test.nip')];
     const plan = grouper.group(analyzed);
-    const rule = plan.classidGroups.get(85)!.get(7)![0];
+    const rule = plan.classidGroups.get(522)!.get(7)![0];
     // residual should only be [flag] != ethereal
     assert.ok(rule.residualProperty);
     assert.strictEqual(rule.residualProperty!.kind, NodeKind.BinaryExpr);
@@ -138,7 +138,7 @@ describe('Grouper', () => {
     binder.bindLine(line);
     const analyzed = [analyzer.analyze(line, 0, 'test.nip')];
     const plan = grouper.group(analyzed);
-    assert.ok(plan.classidGroups.has(85));
+    assert.ok(plan.classidGroups.has(522));
     assert.ok(plan.classidGroups.has(520));
   });
 });
@@ -154,7 +154,7 @@ describe('Emitter', () => {
     assert.ok(js.includes('function getTier'));
     assert.ok(js.includes('function getMercTier'));
     // classid dispatched via Uint16Array _mi[key], dense array _m[key], or switch case
-    assert.ok(js.includes('85') || js.includes('_mi[') || js.includes('_mi[') || js.includes('_m['));
+    assert.ok(js.includes('522') || js.includes('_mi['));
   });
 
   it('emitted code is valid JS (can be eval\'d)', () => {
@@ -177,7 +177,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -197,7 +197,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -241,7 +241,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: () => 0, getStatEx: () => 0,
     };
 
@@ -268,7 +268,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: () => 0x10,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -293,7 +293,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: () => 0x10,
       getStatEx: () => 0, // stat doesn't match for tier 99
     };
@@ -314,7 +314,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: () => 0x10,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -337,7 +337,7 @@ describe('Emitter', () => {
     });
 
     const mockItem = {
-      classid: 415, quality: 6, itemType: 3,
+      classid: 443, quality: 6, itemType: 3,
       getFlag: () => 0x10,
       getStatEx: (id: number, param?: number) => (id === 16 && param === 0) ? 200 : 0,
     };
@@ -371,7 +371,7 @@ describe('Emitter', () => {
     binder.bindFile(file1);
     binder.bindFile(file2);
     const js = emitter.emit([file1, file2]);
-    assert.ok(js.includes('85') || js.includes('_mi[') || js.includes('_m['));
+    assert.ok(js.includes('522') || js.includes('_mi['));
     assert.ok(js.includes('520') || js.includes('_mi[') || js.includes('_m['));
   });
 });
@@ -405,7 +405,7 @@ describe('Emitter ESTree path', () => {
     const mod = factory(helpers);
 
     const matchItem = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -428,7 +428,7 @@ describe('Emitter ESTree path', () => {
     const mod = factory(helpers);
 
     const item = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: (f: number) => f === 0x10 ? 0x10 : 0,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -452,7 +452,7 @@ describe('Emitter ESTree path', () => {
     const mod = factory(helpers);
 
     const item = {
-      classid: 85, quality: 7, itemType: 10,
+      classid: 522, quality: 7, itemType: 10,
       getFlag: () => 0x10,
       getStatEx: (id: number) => id === 77 ? 25 : 0,
     };
@@ -474,7 +474,7 @@ describe('Emitter ESTree path', () => {
   describe('tier expressions', () => {
     function freshAliases(): AliasMapSet {
       return {
-        classId: { ring: 85, amulet: 520, duskshroud: 467, monarch: 443, archonplate: 415 },
+        classId: { ring: 522, amulet: 520, duskshroud: 429, monarch: 447, archonplate: 443 },
         type: { ring: 10, amulet: 12, armor: 3, shield: 2, helm: 37, boots: 15, belt: 19 },
         quality: { lowquality: 1, normal: 2, superior: 3, magic: 4, set: 5, rare: 6, unique: 7, crafted: 8 },
         flag: { identified: 0x10, ethereal: 0x400000, runeword: 0x4000000 },
@@ -492,7 +492,7 @@ describe('Emitter ESTree path', () => {
       const code = em.emit([file]);
       const mod = new Function('return ' + code)()(helpers);
       return mod.getTier({
-        classid: 85, quality: 7, itemType: 10,
+        classid: 522, quality: 7, itemType: 10,
         getFlag: () => 0x10,
         getStatEx: (id: number, param?: number) => {
           const key = param !== undefined ? id * 1000 + param : id;
@@ -553,7 +553,7 @@ describe('Emitter ESTree path', () => {
       const code = em.emit([file]);
       const mod = new Function('return ' + code)()(helpers);
       const item = {
-        classid: 85, quality: 7, itemType: 10,
+        classid: 522, quality: 7, itemType: 10,
         getFlag: () => 0x10,
         getStatEx: (id: number) => id === 9 ? 50 : id === 77 ? 25 : 0,
       };
