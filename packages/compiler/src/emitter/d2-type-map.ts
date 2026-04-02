@@ -2,6 +2,15 @@
  * D2 1.13 item type data, auto-generated from game files.
  * Sources: Armor.txt, Weapons.txt, Misc.txt, ItemTypes.txt
  * Repo: https://github.com/fabd/diablo2/tree/master/code/d2_113_data
+ *
+ * Used by the emitter for:
+ * - Type-to-classid expansion: [type] == armor → all 45 armor classids
+ * - Impossible quality filtering: charms can't be rare, runes can't be magic
+ * - Always-identified detection: runes/gems/potions skip _id checks
+ *
+ * typeProperties.normal means "simple item" — always identified, no magical
+ * affixes. Runes have inherent effects (e.g. Cannot Be Frozen) but these
+ * are fixed per rune, not hidden behind identification.
  */
 
 /** Maps item type ID to all classids of that type. */

@@ -1,6 +1,12 @@
 /**
- * CodeGen that produces ESTree AST nodes instead of strings.
- * Mirrors codegen.ts but returns ESTree.Expression for each NIP expression.
+ * Translates NIP expressions (ExprNode) into ESTree AST nodes.
+ *
+ * Property keywords ([name], [quality], [flag], etc.) → ESTree identifiers/member access.
+ * Stat keywords ([maxhp], [fcr], etc.) → getStatEx() calls with optional hoisted var reuse.
+ * Callable keywords ([flag], [prefix], [suffix]) → getFlag()/getPrefix()/getSuffix() calls.
+ *
+ * Hoisted stat vars (_h0, _l0) are tracked via the exprHoisted map — when a stat ID
+ * has already been hoisted, the codegen emits the var name instead of a new getStatEx call.
  */
 import type * as ESTree from 'estree';
 import { ExprNode, NodeKind, BinaryExprNode, KeywordExprNode } from '../types.js';

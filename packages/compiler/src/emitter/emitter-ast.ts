@@ -32,6 +32,25 @@ interface ASTFlagGroup {
   rules: { original: GroupedRule; stripped: GroupedRule }[];
 }
 
+/**
+ * Emits NIP rules as an ESTree AST, using a two-level dispatch:
+ *
+ *   Uint16Array(_mi)[classid | (quality << 10)]  →  handler index
+ *   switch(index) { case N: return _dN(item, _id); }
+ *
+ * The Uint16Array is a raw typed memory buffer — no type checks, no hole
+ * checks (SpiderMonkey marks regular sparse arrays as "holey" permanently).
+ * The switch on the index gives the JIT a dense jump table (~490 cases).
+ *
+ * For items with no matching rules (the vast majority in-game), the index
+ * is 0 and the switch breaks immediately — zero native calls.
+ *
+ * Each handler is a small function (~5-20 lines) containing only the stat
+ * checks for that specific classid+quality combo. Handler dedup across
+ * classids ensures type-expanded rules share one function.
+ *
+ * Pipeline: NIP files → Analyzer → Grouper → DispatchPlan → this emitter → ESTree → escodegen
+ */
 export class EmitterAST {
   private analyzer: Analyzer;
   private grouper: Grouper;
@@ -42,10 +61,10 @@ export class EmitterAST {
   private fileTable: string[] = [];
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
-  private localVarCounter = 0;
-  private helperFunctions: ESTree.Statement[] = [];
-  private helperCounter = 0;
-  private handlerNames: string[] = [];
+  private localVarCounter = 0;        // global counter for _l vars to prevent collisions across merged cases
+  private helperFunctions: ESTree.Statement[] = []; // handler functions + _mi array, emitted before _ci
+  private helperCounter = 0;          // handler function name counter (_d0, _d1, ...)
+  private handlerNames: string[] = []; // handler names for switch case generation
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -264,6 +283,17 @@ export class EmitterAST {
     return fnDecl('_ci', ['i', '_id'], body);
   }
 
+  /**
+   * Builds the Uint16Array dispatch table + handler functions.
+   *
+   * For each classid, expands quality ranges and merges catch-all quality rules
+   * into per-quality buckets. Each unique bucket (by rule source signature) gets
+   * one handler function. Type-expanded classids that share the same rules
+   * (e.g. all 45 armor classids) are deduped to one shared handler.
+   *
+   * Impossible quality combos are filtered by D2 type properties:
+   * runes can only be normal, charms can only be magic/unique, etc.
+   */
   private buildFlatDispatch(
     groups: Map<number, Map<number | null, GroupedRule[]>>,
     mqSources: string[],
@@ -699,6 +729,22 @@ export class EmitterAST {
     return result;
   }
 
+  /**
+   * Builds the body of a quality-specific handler. This is where most optimization happens:
+   *
+   * 1. Sort: property-only rules first (fast unconditional matches), then by flag key
+   * 2. Dead code elimination: after an unconditional match, everything is unreachable
+   * 3. Hoist shared stats: getStatEx calls used 2+ times → const _hN declarations
+   * 4. Group by flag condition: consecutive rules sharing [flag]==eth grouped under one if
+   * 5. Two-pass base/magical split:
+   *    - Pass 1: base-stat rules (defense, damage — always readable, even on unid)
+   *    - Unid bail: if item is unidentified and has magical stats → return -1 ("maybe")
+   *    - Pass 2: magical-stat rules (only reached when identified)
+   *    Flagged magical groups get their own bail INSIDE the flag condition,
+   *    because the flag is a property check that must pass first.
+   * 6. Quality <= 3 (normal/superior): skip the base/magical split entirely,
+   *    these items are always identified in D2.
+   */
   private buildHoistedGroup(rules: GroupedRule[], mqSources: string[], quality: number | null = null): ESTree.Statement[] {
     const stmts: ESTree.Statement[] = [];
 

@@ -4,6 +4,18 @@ import { EmitterConfig } from './types.js';
 import { EmitterAST } from './emitter-ast.js';
 import * as escodegen from 'escodegen';
 
+/**
+ * Public API for NIP compilation. Thin wrapper around EmitterAST + escodegen.
+ *
+ * Usage:
+ *   emit(files)              → JavaScript string
+ *   emitWithSourceMap(files)  → { code, map } with inline source locations
+ *   emitAST(files)            → raw ESTree Program (for custom code generation)
+ *   generate(ast, opts)       → JS string from AST (with optional source map)
+ *
+ * The emitted code is a self-contained function that takes a helpers object
+ * with checkQuantityOwned, me, and getBaseStat. It returns { checkItem, getTier, getMercTier }.
+ */
 export class Emitter {
   constructor(private config: EmitterConfig) {}
 
