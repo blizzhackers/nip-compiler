@@ -64,7 +64,8 @@ export class EmitterAST {
   private localVarCounter = 0;        // global counter for _l vars to prevent collisions across merged cases
   private helperFunctions: ESTree.Statement[] = []; // handler functions + _mi array, emitted before _ci
   private helperCounter = 0;          // handler function name counter (_d0, _d1, ...)
-  private handlerNames: string[] = []; // handler names for switch case generation
+  // Handler info for switch case generation
+  private handlerInfo: { name: string; trivialReturn?: number; alwaysReturns: boolean }[] = [];
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -125,7 +126,7 @@ export class EmitterAST {
     // _ci function (handler functions + _m array emitted before _ci)
     this.helperFunctions = [];
     this.helperCounter = 0;
-    this.handlerNames = [];
+    this.handlerInfo = [];
     const ciFunc = this.buildCiFunction(plan, mqRules.map(m => m.source));
     body.push(...this.helperFunctions);
     body.push(ciFunc);
@@ -236,22 +237,34 @@ export class EmitterAST {
       // Uint16Array index → switch dispatch with jump table
       // _mi[classid|(quality<<10)] returns a handler index (0 = no handler).
       // switch(_ix) generates a jump table on dense integer cases — optimal on SpiderMonkey.
-      if (plan.classidGroups.size > 0 && this.handlerNames.length > 0) {
+      if (plan.classidGroups.size > 0 && this.handlerInfo.length > 0) {
         body.push(varDecl('var', [{
           id: '_ix',
           init: memberComputed(ident('_mi'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
         }]));
 
+        const hasFallback = plan.typeGroups.size > 0 || plan.catchAll.length > 0;
         const cases: ESTree.SwitchCase[] = [];
-        // case 0: no handler — break to continue with type dispatch / catch-all
-        cases.push(switchCase(literal(0), [breakStmt()]));
-        // case N: { var _r2 = _dN(i, _id); if (_r2) return _r2; break; }
-        for (let idx = 0; idx < this.handlerNames.length; idx++) {
-          cases.push(switchCase(literal(idx + 1), [block([
-            varDecl('var', [{ id: '_r2', init: call(ident(this.handlerNames[idx]), [ident('i'), ident('_id')]) }]),
-            ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
-            breakStmt(),
-          ])]));
+        // case 0: no handler — break (to continue with type/catch-all) or return 0
+        cases.push(switchCase(literal(0), [hasFallback ? breakStmt() : returnStmt(literal(0))]));
+
+        for (let idx = 0; idx < this.handlerInfo.length; idx++) {
+          const info = this.handlerInfo[idx];
+
+          if (info.trivialReturn !== undefined) {
+            // Trivial handler (just returns a constant) — inline directly
+            cases.push(switchCase(literal(idx + 1), [returnStmt(literal(info.trivialReturn))]));
+          } else if (info.alwaysReturns && !hasFallback) {
+            // Handler always returns non-zero, no fallback needed — direct call
+            cases.push(switchCase(literal(idx + 1), [returnStmt(call(ident(info.name), [ident('i'), ident('_id')]))]));
+          } else {
+            // Handler might return 0 (no match) — check result, fall through to type/catch-all
+            cases.push(switchCase(literal(idx + 1), [block([
+              varDecl('var', [{ id: '_r2', init: call(ident(info.name), [ident('i'), ident('_id')]) }]),
+              ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
+              breakStmt(),
+            ])]));
+          }
         }
         body.push(switchStmt(ident('_ix'), cases));
       }
@@ -420,8 +433,19 @@ export class EmitterAST {
     indexAssigns: ESTree.Statement[],
   ): void {
     for (const k of keys) if (k > this.maxMKey) this.maxMKey = k;
-    const handlerIndex = this.handlerNames.length + 1; // 0 = no handler
+    const handlerIndex = this.handlerInfo.length + 1; // 0 = no handler
     const handlerName = `_d${this.helperCounter++}`;
+
+    // Detect trivial handlers: just a single return statement with a literal value
+    const last = handlerBody[handlerBody.length - 1];
+    const alwaysReturns = last?.type === 'ReturnStatement';
+    let trivialReturn: number | undefined;
+    if (handlerBody.length === 1 && alwaysReturns) {
+      const arg = (last as ESTree.ReturnStatement).argument;
+      if (arg?.type === 'Literal' && typeof arg.value === 'number') {
+        trivialReturn = arg.value;
+      }
+    }
 
     // Only declare _c/_q/_t if the handler body references them
     const bodyJson = JSON.stringify(handlerBody);
@@ -433,13 +457,13 @@ export class EmitterAST {
     const body: ESTree.Statement[] = [];
     if (vars.length > 0) body.push(varDecl('const', vars));
     body.push(...handlerBody);
-
-    const last = handlerBody[handlerBody.length - 1];
-    const alwaysReturns = last?.type === 'ReturnStatement';
     if (!alwaysReturns) body.push(returnStmt(literal(0)));
 
-    this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], body));
-    this.handlerNames.push(handlerName);
+    // Don't emit function for trivial handlers — they'll be inlined in the switch
+    if (trivialReturn === undefined) {
+      this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], body));
+    }
+    this.handlerInfo.push({ name: handlerName, trivialReturn, alwaysReturns });
 
     // _mi[key] = handlerIndex
     for (const key of keys) {
