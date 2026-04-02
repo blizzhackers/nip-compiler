@@ -43,6 +43,8 @@ export class EmitterAST {
   private fileIdMap = new Map<string, number>();
   private currentTierField: 'tierExpr' | 'mercTierExpr' = 'tierExpr';
   private localVarCounter = 0;
+  private helperFunctions: ESTree.Statement[] = [];
+  private helperCounter = 0;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -100,8 +102,12 @@ export class EmitterAST {
       body.push(varDecl('const', [{ id: 'getBaseStat', init: member(ident('helpers'), 'getBaseStat') }]));
     }
 
-    // _ci function
-    body.push(this.buildCiFunction(plan, mqRules.map(m => m.source)));
+    // _ci function (handler functions + _m array emitted before _ci)
+    this.helperFunctions = [];
+    this.helperCounter = 0;
+    const ciFunc = this.buildCiFunction(plan, mqRules.map(m => m.source));
+    body.push(...this.helperFunctions);
+    body.push(ciFunc);
 
     // checkItem wrapper
     body.push(this.buildCheckItemFunction());
@@ -194,28 +200,144 @@ export class EmitterAST {
   private buildCiFunction(plan: DispatchPlan, mqSources: string[]): ESTree.FunctionDeclaration {
     const body: ESTree.Statement[] = [];
 
-    body.push(varDecl('let', [{ id: '_r', init: literal(0) }]));
+    // Array-dispatch: one function per classid+quality combo.
+    // _m[(classid) | (quality << 10)] = handler.
+    // _ci is tiny (array lookup) → TurboFan eligible.
+    // Each handler is small (just stat checks) → also TurboFan eligible.
+    this.buildFlatDispatch(plan.classidGroups, mqSources);
+
     body.push(varDecl('const', [
       { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },
       { id: '_q', init: bin('|', member(ident('i'), 'quality'), literal(0)) },
       { id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) },
     ]));
 
-    // Switch dispatch
-    this.buildSwitchDispatch(body, plan, mqSources);
-
-    // Catch-all rules
-    for (const rule of plan.catchAll) {
-      body.push(...this.buildCheckRuleStmts(rule, mqSources, false));
+    // Classid array dispatch (only if there are classid groups)
+    if (plan.classidGroups.size > 0) {
+      body.push(varDecl('const', [{
+        id: '_v',
+        init: memberComputed(ident('_m'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
+      }]));
+      body.push(ifStmt(ident('_v'), [
+        varDecl('const', [{ id: '_r2', init: call(ident('_v'), [ident('i'), ident('_id')]) }]),
+        ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
+      ]));
     }
 
-    body.push(returnStmt(ident('_r')));
+    // Type dispatch fallback (still switch-based, fewer entries)
+    const typeBody: ESTree.Statement[] = [];
+    this.buildMergedSwitch(typeBody, plan.typeGroups, ident('_t'), mqSources);
+    if (typeBody.length > 0) body.push(...typeBody);
+
+    // Catch-all rules
+    if (plan.catchAll.length > 0) {
+      body.push(varDecl('let', [{ id: '_r', init: literal(0) }]));
+      for (const rule of plan.catchAll) {
+        body.push(...this.buildCheckRuleStmts(rule, mqSources, false));
+      }
+      body.push(ifStmt(ident('_r'), [returnStmt(ident('_r'))]));
+    }
+
+    body.push(returnStmt(literal(0)));
     return fnDecl('_ci', ['i', '_id'], body);
   }
 
-  private buildSwitchDispatch(body: ESTree.Statement[], plan: DispatchPlan, mqSources: string[]): void {
-    this.buildMergedSwitch(body, plan.classidGroups, ident('_c'), mqSources);
-    this.buildMergedSwitch(body, plan.typeGroups, ident('_t'), mqSources);
+  private buildFlatDispatch(
+    groups: Map<number, Map<number | null, GroupedRule[]>>,
+    mqSources: string[],
+  ): void {
+    if (groups.size === 0) return;
+
+    const assigns: ESTree.Statement[] = [];
+
+    for (const [classid, qualityMap] of groups) {
+      const fixedQualities = [...qualityMap.entries()].filter(([q]) => q !== null);
+      const anyQuality = qualityMap.get(null);
+
+      // Quality range extraction (same as buildQualityDispatch)
+      const rangeGroups: { qualities: number[]; rules: GroupedRule[] }[] = [];
+      const trueCatchAll: GroupedRule[] = [];
+      if (anyQuality) {
+        for (const rule of anyQuality) {
+          const extracted = this.extractQualityRange(rule.residualProperty);
+          if (extracted) {
+            const strippedRule = { ...rule, residualProperty: extracted.rest };
+            const key = extracted.qualities.join(',');
+            const last = rangeGroups[rangeGroups.length - 1];
+            if (last && last.qualities.join(',') === key) {
+              last.rules.push(strippedRule);
+            } else {
+              rangeGroups.push({ qualities: extracted.qualities, rules: [strippedRule] });
+            }
+          } else {
+            trueCatchAll.push(rule);
+          }
+        }
+      }
+
+      // Merge into per-quality buckets
+      const mergedMap = new Map<number, GroupedRule[]>();
+      for (const [quality, rules] of fixedQualities) {
+        mergedMap.set(quality!, [...rules]);
+      }
+      for (const group of rangeGroups) {
+        for (const q of group.qualities) {
+          if (!mergedMap.has(q)) mergedMap.set(q, []);
+          mergedMap.get(q)!.push(...group.rules);
+        }
+      }
+
+      // Dedup quality groups with identical rule sets
+      const qualityEntries: { keys: number[]; quality: number; rules: GroupedRule[] }[] = [];
+      const sigMap = new Map<string, number>();
+      for (const [quality, rules] of mergedMap) {
+        const sig = rules.map(r => r.source).join('|');
+        const existing = sigMap.get(sig);
+        if (existing !== undefined) {
+          qualityEntries[existing].keys.push(classid | (quality << 10));
+        } else {
+          sigMap.set(sig, qualityEntries.length);
+          qualityEntries.push({ keys: [classid | (quality << 10)], quality, rules });
+        }
+      }
+
+      // Emit handler per deduped quality group
+      for (const entry of qualityEntries) {
+        const minQuality = Math.min(...entry.keys.map(k => (k >> 10) & 0xF));
+        const handlerBody = this.buildHoistedGroup(entry.rules, mqSources, minQuality);
+        this.emitHandler(handlerBody, entry.keys, assigns);
+      }
+
+      // True catch-all (any quality, no range) — register for remaining qualities
+      if (trueCatchAll.length > 0) {
+        const handlerBody = this.buildHoistedGroup(trueCatchAll, mqSources);
+        const keys: number[] = [];
+        for (let q = EmitterAST.MIN_QUALITY; q <= EmitterAST.MAX_QUALITY; q++) {
+          if (!mergedMap.has(q)) keys.push(classid | (q << 10));
+        }
+        if (keys.length > 0) this.emitHandler(handlerBody, keys, assigns);
+      }
+    }
+
+    // Emit: const _m = []; _m[k1] = _d0; _m[k2] = _d0; ...
+    this.helperFunctions.push(varDecl('const', [{ id: '_m', init: array([]) }]));
+    this.helperFunctions.push(...assigns);
+  }
+
+  private emitHandler(handlerBody: ESTree.Statement[], keys: number[], assigns: ESTree.Statement[]): void {
+    const handlerName = `_d${this.helperCounter++}`;
+    this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], [
+      varDecl('const', [
+        { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },
+        { id: '_q', init: bin('|', member(ident('i'), 'quality'), literal(0)) },
+        { id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) },
+      ]),
+      ...handlerBody,
+      returnStmt(literal(0)),
+    ]));
+    for (const key of keys) {
+      assigns.push(exprStmt(assign(memberComputed(ident('_m'), literal(key)), ident(handlerName))));
+    }
   }
 
   private buildMergedSwitch(
