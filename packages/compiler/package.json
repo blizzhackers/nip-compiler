@@ -1,6 +1,6 @@
 {
   "name": "@blizzhackers/nip-compiler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "NIP/JIP compiler for Diablo 2 item filtering — lexer, parser, binder, and optimizing code generator",
   "license": "MIT",
@@ -12,8 +12,17 @@
     "directory": "packages/compiler"
   },
   "keywords": [
-    "diablo2", "d2", "nip", "jip", "item-filter", "compiler",
-    "kolbot", "d2bs", "pickit", "ast", "transpiler"
+    "diablo2",
+    "d2",
+    "nip",
+    "jip",
+    "item-filter",
+    "compiler",
+    "kolbot",
+    "d2bs",
+    "pickit",
+    "ast",
+    "transpiler"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
