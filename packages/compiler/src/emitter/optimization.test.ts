@@ -733,5 +733,38 @@ describe('E2E: emitter optimization correctness', () => {
       const rareArmor = { ...item(cid('archonplate'), qid('rare'), { [sid('enhanceddefense')]: 100 }), itemType: 3 };
       assert.strictEqual(mod.checkItem(rareArmor), 1);
     });
+
+    // These tests document that we intentionally reject items the OG NTIP would match.
+    // The OG NTIP blindly evaluates rules without D2 type knowledge — it would return 1
+    // for impossible items like rare charms and magic runes. We skip them at compile time.
+    it('OG NTIP would match rare charm but we reject (impossible in D2)', () => {
+      const mod = compile(['[name] == smallcharm && [quality] == rare # [maxhp] >= 20']);
+      assert.strictEqual(mod.checkItem(item(cid('smallcharm'), qid('rare'), { [sid('maxhp')]: 20 })), 0);
+    });
+
+    it('OG NTIP would match magic rune but we reject (impossible in D2)', () => {
+      const mod = compile(['[name] == berrune && [quality] == magic']);
+      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('magic'))), 0);
+    });
+
+    it('OG NTIP would match rare rune but we reject (impossible in D2)', () => {
+      const mod = compile(['[name] == berrune && [quality] == rare']);
+      assert.strictEqual(mod.checkItem(item(cid('berrune'), qid('rare'))), 0);
+    });
+
+    it('OG NTIP would match unique gold but we reject (impossible in D2)', () => {
+      const mod = compile(['[name] == gold && [quality] == unique # [gold] >= 500']);
+      assert.strictEqual(mod.checkItem(item(cid('gold'), qid('unique'), { [sid('gold')]: 500 })), 0);
+    });
+
+    it('OG NTIP would match crafted charm but we reject (impossible in D2)', () => {
+      const mod = compile(['[name] == smallcharm && [quality] == crafted # [maxhp] >= 20']);
+      assert.strictEqual(mod.checkItem(item(cid('smallcharm'), qid('crafted'), { [sid('maxhp')]: 20 })), 0);
+    });
+
+    it('OG NTIP would match set charm but we reject (impossible in D2)', () => {
+      const mod = compile(['[name] == smallcharm && [quality] == set # [maxhp] >= 20']);
+      assert.strictEqual(mod.checkItem(item(cid('smallcharm'), qid('set'), { [sid('maxhp')]: 20 })), 0);
+    });
   });
 });
