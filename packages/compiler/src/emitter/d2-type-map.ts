@@ -1,10 +1,10 @@
 /**
- * Auto-generated from D2 1.13 game data.
+ * D2 1.13 item type data, auto-generated from game files.
  * Sources: Armor.txt, Weapons.txt, Misc.txt, ItemTypes.txt
  * Repo: https://github.com/fabd/diablo2/tree/master/code/d2_113_data
  */
 
-/** Maps item type ID → array of classids belonging to that type. */
+/** Maps item type ID to all classids of that type. */
 export const typeToClassIds: Record<number, number[]> = {
   2: [328,329,330,331,332,333,350,351,374,375,376,377,378,379,396,397,444,445,446,447,448,449,466,467], // shield
   3: [313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,429,430,431,432,433,434,435,436,437,438,439,440,441,442,443], // armor
@@ -73,7 +73,7 @@ export const typeToClassIds: Record<number, number[]> = {
   102: [597,598,599,600,601], // skull
 };
 
-/** Maps classid → its item type ID. */
+/** Maps classid to its item type ID. */
 export const classIdToType: Record<number, number> = {
   0: 28,
   1: 28,
@@ -738,11 +738,11 @@ export const classIdToType: Record<number, number> = {
 
 /**
  * Item type properties from ItemTypes.txt.
- * - magic: can this type be magic quality?
- * - rare: can this type be rare quality?
- * - charm: is this a charm type?
- * - normal: can this type be normal (white) quality?
- * - maxSock: maximum sockets at different ilvl thresholds
+ * magic: can this type roll magic quality?
+ * rare: can this type roll rare quality?
+ * charm: is this a charm type? (magic only, not rare)
+ * normal: can this type be normal (white) quality?
+ * maxSock1/25/40: maximum sockets at ilvl 1-25, 25-40, 40+
  */
 export interface ItemTypeProps {
   magic: boolean;
