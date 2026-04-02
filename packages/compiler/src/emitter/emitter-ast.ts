@@ -66,6 +66,7 @@ export class EmitterAST {
   private helperCounter = 0;          // handler function name counter (_d0, _d1, ...)
   // Handler info for switch case generation
   private handlerInfo: { name: string; trivialReturn?: number; alwaysReturns: boolean }[] = [];
+  private fileBits = 1;
 
   constructor(private config: EmitterConfig) {
     this.analyzer = new Analyzer(config.aliases);
@@ -147,11 +148,11 @@ export class EmitterAST {
     // Bit width for file ID is dynamic based on actual file count.
     // encode: (lineNumber << _b) | fileId
     // decode: file = _f[e & mask], line = e >>> _b
-    const fileBits = Math.max(1, Math.ceil(Math.log2(this.fileTable.length + 1)));
-    body.push(varDecl('const', [{ id: '_b', init: literal(fileBits) }]));
+    // fileBits is inlined as a literal — no runtime variable needed
+    this.fileBits = Math.max(1, Math.ceil(Math.log2(this.fileTable.length + 1)));
     body.push(varDecl('const', [{
       id: '_s',
-      init: array(this.sourceTable.map(([f, l]) => literal((l << fileBits) | f))),
+      init: array(this.sourceTable.map(([f, l]) => literal((l << this.fileBits) | f))),
     }]));
 
     // _mq array
@@ -1052,12 +1053,12 @@ export class EmitterAST {
     const result = cond(bin('>', ident('r'), literal(0)), literal(1),
       cond(bin('<', ident('r'), literal(0)), literal(-1), literal(0)));
 
-    // Decode: file = _f[e & ((1 << _b) - 1)], line = e >>> _b
-    const fileMask = bin('-', bin('<<', literal(1), ident('_b')), literal(1));
+    // Decode: file = _f[e & mask], line = e >>> bits (inlined constants)
+    const fileMask = (1 << this.fileBits) - 1;
     const fileExpr = cond(ident('e'),
-      memberComputed(ident('_f'), bin('&', ident('e'), fileMask)),
+      memberComputed(ident('_f'), bin('&', ident('e'), literal(fileMask))),
       literal(null));
-    const lineExpr = bin('>>>', ident('e'), ident('_b'));
+    const lineExpr = bin('>>>', ident('e'), literal(this.fileBits));
 
     if (this.config.kolbotCompat) {
       body.push(returnStmt(object([
