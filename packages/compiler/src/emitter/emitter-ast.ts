@@ -212,13 +212,14 @@ export class EmitterAST {
       // Each handler is small → TurboFan eligible.
       this.buildFlatDispatch(plan.classidGroups, mqSources);
 
+      // Uint16Array index → function table: _mi[key] → _mf[idx](i, _id)
       if (plan.classidGroups.size > 0) {
-        body.push(varDecl('const', [{
-          id: '_v',
-          init: memberComputed(ident('_m'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
+        body.push(varDecl('var', [{
+          id: '_ix',
+          init: memberComputed(ident('_mi'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
         }]));
-        body.push(ifStmt(ident('_v'), [
-          varDecl('const', [{ id: '_r2', init: call(ident('_v'), [ident('i'), ident('_id')]) }]),
+        body.push(ifStmt(ident('_ix'), [
+          varDecl('var', [{ id: '_r2', init: call(memberComputed(ident('_mf'), ident('_ix')), [ident('i'), ident('_id')]) }]),
           ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
         ]));
       }
@@ -349,27 +350,45 @@ export class EmitterAST {
       }
     }
 
-    // Build handler body once per unique signature, emit _m assignments for all keys
-    const assigns: ESTree.Statement[] = [];
+    // Build handler body once per unique signature
+    // Two-level dispatch: Uint16Array(_mi) for index lookup → dense function table(_mf)
+    // Uint16Array access is a raw memory read (no type checks, no hole checks).
+    // The function table is a small dense array of uniform type (all functions).
+    // 10% faster on SpiderMonkey, 19% faster on V8 vs dense Array.fill(0).
+    const handlerFns: ESTree.Expression[] = [
+      // Index 0 = no handler (Uint16Array defaults to 0)
+      fnExpr([], [returnStmt(literal(0))]),
+    ];
+    const indexAssigns: ESTree.Statement[] = [];
+
     for (const entry of dedupMap.values()) {
       const minQuality = Math.min(...entry.keys.map(k => (k >> 10) & 0xF));
       const handlerBody = this.buildHoistedGroup(entry.rules, mqSources, minQuality);
-      this.emitHandler(handlerBody, entry.keys, assigns);
+      this.emitHandler(handlerBody, entry.keys, handlerFns, indexAssigns);
     }
 
-    // Pre-fill _m as dense array to avoid SpiderMonkey's holey array checks (+57% on Firefox).
-    // Dense arrays avoid per-access hole checks that SpiderMonkey adds for sparse arrays.
+    // Emit: var _mi = new Uint16Array(maxKey+1); var _mf = [noop, _d0, _d1, ...];
     this.helperFunctions.push(varDecl('var', [{
-      id: '_m',
-      init: call(member(call(ident('Array'), [literal(this.maxMKey + 1)]), 'fill'), [literal(0)]),
+      id: '_mi',
+      init: { type: 'NewExpression', callee: ident('Uint16Array'), arguments: [literal(this.maxMKey + 1)] } as ESTree.Expression,
     }]));
-    this.helperFunctions.push(...assigns);
+    this.helperFunctions.push(...indexAssigns);
+    this.helperFunctions.push(varDecl('var', [{
+      id: '_mf',
+      init: array(handlerFns),
+    }]));
   }
 
   private maxMKey = 0;
 
-  private emitHandler(handlerBody: ESTree.Statement[], keys: number[], assigns: ESTree.Statement[]): void {
+  private emitHandler(
+    handlerBody: ESTree.Statement[],
+    keys: number[],
+    handlerFns: ESTree.Expression[],
+    indexAssigns: ESTree.Statement[],
+  ): void {
     for (const k of keys) if (k > this.maxMKey) this.maxMKey = k;
+    const handlerIndex = handlerFns.length;
     const handlerName = `_d${this.helperCounter++}`;
 
     // Only declare _c/_q/_t if the handler body references them
@@ -383,14 +402,18 @@ export class EmitterAST {
     if (vars.length > 0) body.push(varDecl('const', vars));
     body.push(...handlerBody);
 
-    // Skip trailing return 0 if body already terminates unconditionally
     const last = handlerBody[handlerBody.length - 1];
     const alwaysReturns = last?.type === 'ReturnStatement';
     if (!alwaysReturns) body.push(returnStmt(literal(0)));
 
     this.helperFunctions.push(fnDecl(handlerName, ['i', '_id'], body));
+    handlerFns.push(ident(handlerName));
+
+    // _mi[key] = handlerIndex
     for (const key of keys) {
-      assigns.push(exprStmt(assign(memberComputed(ident('_m'), literal(key)), ident(handlerName))));
+      indexAssigns.push(exprStmt(assign(
+        memberComputed(ident('_mi'), literal(key)),
+        literal(handlerIndex))));
     }
   }
 
