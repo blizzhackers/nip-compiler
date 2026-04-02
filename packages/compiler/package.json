@@ -2,7 +2,19 @@
   "name": "@blizzhackers/nip-compiler",
   "version": "0.1.0",
   "type": "module",
-  "description": "NIP file lexer, parser and code generator for Diablo 2 item filtering",
+  "description": "NIP/JIP compiler for Diablo 2 item filtering — lexer, parser, binder, and optimizing code generator",
+  "license": "MIT",
+  "homepage": "https://blizzhackers.github.io/nip-compiler/",
+  "bugs": "https://github.com/blizzhackers/nip-compiler/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blizzhackers/nip-compiler.git",
+    "directory": "packages/compiler"
+  },
+  "keywords": [
+    "diablo2", "d2", "nip", "jip", "item-filter", "compiler",
+    "kolbot", "d2bs", "pickit", "ast", "transpiler"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -15,8 +27,32 @@
       "types": "./dist/emitter/d2-aliases.d.ts",
       "import": "./dist/emitter/d2-aliases.js",
       "default": "./dist/emitter/d2-aliases.js"
+    },
+    "./d2-data": {
+      "types": "./dist/emitter/d2-type-map.d.ts",
+      "import": "./dist/emitter/d2-type-map.js",
+      "default": "./dist/emitter/d2-type-map.js"
+    },
+    "./unique-items": {
+      "types": "./dist/emitter/d2-unique-items.d.ts",
+      "import": "./dist/emitter/d2-unique-items.js",
+      "default": "./dist/emitter/d2-unique-items.js"
+    },
+    "./set-items": {
+      "types": "./dist/emitter/d2-set-items.d.ts",
+      "import": "./dist/emitter/d2-set-items.js",
+      "default": "./dist/emitter/d2-set-items.js"
+    },
+    "./discriminator": {
+      "types": "./dist/emitter/d2-discriminator.d.ts",
+      "import": "./dist/emitter/d2-discriminator.js",
+      "default": "./dist/emitter/d2-discriminator.js"
     }
   },
+  "files": [
+    "dist",
+    "nip"
+  ],
   "bin": {
     "nip-compile": "./dist/cli.js"
   },

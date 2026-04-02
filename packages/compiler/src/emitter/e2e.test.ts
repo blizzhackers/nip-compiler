@@ -92,26 +92,20 @@ describe('E2E: kolton.nip with real aliases', () => {
       assert.strictEqual(result.line, 7);
     });
 
-    it('picks up BK ring (maxstamina == 50, lifeleech >= 3)', () => {
+    it('does not pick up BK ring (commented out in upstream)', () => {
       const item = makeItem({
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('maxstamina')]: 50, [sidKey('lifeleech')]: 5 },
       });
-      const result = mod.checkItem(item, true);
-      assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.file, 'kolton.nip');
-      assert.strictEqual(result.line, 8);
+      assert.strictEqual(mod.checkItem(item), 0);
     });
 
-    it('picks up Nagel (itemmagicbonus == 30)', () => {
+    it('does not pick up Nagel (commented out in upstream)', () => {
       const item = makeItem({
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('itemmagicbonus')]: 30 },
       });
-      const result = mod.checkItem(item, true);
-      assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.file, 'kolton.nip');
-      assert.strictEqual(result.line, 9);
+      assert.strictEqual(mod.checkItem(item), 0);
     });
 
     it('picks up Raven Frost (dexterity == 20, tohit == 250)', () => {
@@ -125,15 +119,12 @@ describe('E2E: kolton.nip with real aliases', () => {
       assert.strictEqual(result.line, 11);
     });
 
-    it('picks up Dwarf Star (maxhp == 40, magicdamagereduction == 15)', () => {
+    it('does not pick up Dwarf Star (commented out in upstream)', () => {
       const item = makeItem({
         classid: cid('ring'), quality: qid('unique'), itemType: tid('ring'),
         stats: { [sidKey('maxhp')]: 40, [sidKey('magicdamagereduction')]: 15 },
       });
-      const result = mod.checkItem(item, true);
-      assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.file, 'kolton.nip');
-      assert.strictEqual(result.line, 12);
+      assert.strictEqual(mod.checkItem(item), 0);
     });
 
     it('rejects unique ring with no matching stats', () => {
@@ -200,26 +191,20 @@ describe('E2E: kolton.nip with real aliases', () => {
       assert.strictEqual(result.line, 28);
     });
 
-    it('picks up Highlord (lightresist == 35)', () => {
+    it('does not pick up Highlord (commented out in upstream)', () => {
       const item = makeItem({
         classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'),
         stats: { [sidKey('lightresist')]: 35 },
       });
-      const result = mod.checkItem(item, true);
-      assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.file, 'kolton.nip');
-      assert.strictEqual(result.line, 29);
+      assert.strictEqual(mod.checkItem(item), 0);
     });
 
-    it("picks up Cat's Eye (dexterity == 25)", () => {
+    it("does not pick up Cat's Eye (commented out in upstream)", () => {
       const item = makeItem({
         classid: cid('amulet'), quality: qid('unique'), itemType: tid('amulet'),
         stats: { [sidKey('dexterity')]: 25 },
       });
-      const result = mod.checkItem(item, true);
-      assert.strictEqual(result.result, 1);
-      assert.strictEqual(result.file, 'kolton.nip');
-      assert.strictEqual(result.line, 30);
+      assert.strictEqual(mod.checkItem(item), 0);
     });
   });
 
