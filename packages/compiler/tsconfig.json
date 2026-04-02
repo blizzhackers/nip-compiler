@@ -13,5 +13,5 @@
     "sourceMap": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "kolbot"]
+  "exclude": ["node_modules", "dist", "kolbot", "src/**/*-bench.ts"]
 }
