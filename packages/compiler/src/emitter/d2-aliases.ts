@@ -2144,6 +2144,8 @@ export const stat: Record<string, number | [number, number]> = {
   plusskillvengeance: [97, 111] as [number, number],
 };
 
+import { typeToClassIds } from './d2-type-map.js';
+
 export const d2Aliases: AliasMapSet = {
   classId,
   type,
@@ -2152,4 +2154,5 @@ export const d2Aliases: AliasMapSet = {
   stat,
   color,
   class: itemClass,
+  typeToClassIds,
 };
