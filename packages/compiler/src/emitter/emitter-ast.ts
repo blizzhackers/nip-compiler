@@ -8,7 +8,7 @@ import { Analyzer } from './analyzer.js';
 import { Grouper } from './grouper.js';
 import { CodeGenAST } from './codegen-ast.js';
 import {
-  AliasMapSet, BASE_STATS, DispatchPlan, EmitterConfig,
+  AliasMapSet, BASE_STATS, DispatchPlan, DispatchStrategy, EmitterConfig,
   GroupedRule, OutputFormat,
 } from './types.js';
 import {
@@ -199,12 +199,7 @@ export class EmitterAST {
 
   private buildCiFunction(plan: DispatchPlan, mqSources: string[]): ESTree.FunctionDeclaration {
     const body: ESTree.Statement[] = [];
-
-    // Array-dispatch: one function per classid+quality combo.
-    // _m[(classid) | (quality << 10)] = handler.
-    // _ci is tiny (array lookup) → TurboFan eligible.
-    // Each handler is small (just stat checks) → also TurboFan eligible.
-    this.buildFlatDispatch(plan.classidGroups, mqSources);
+    const useFlat = this.config.dispatchStrategy === DispatchStrategy.ObjectLookup;
 
     body.push(varDecl('const', [
       { id: '_c', init: bin('|', member(ident('i'), 'classid'), literal(0)) },
@@ -212,33 +207,46 @@ export class EmitterAST {
       { id: '_t', init: bin('|', member(ident('i'), 'itemType'), literal(0)) },
     ]));
 
-    // Classid array dispatch (only if there are classid groups)
-    if (plan.classidGroups.size > 0) {
-      body.push(varDecl('const', [{
-        id: '_v',
-        init: memberComputed(ident('_m'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
-      }]));
-      body.push(ifStmt(ident('_v'), [
-        varDecl('const', [{ id: '_r2', init: call(ident('_v'), [ident('i'), ident('_id')]) }]),
-        ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
-      ]));
+    if (useFlat) {
+      // Array-dispatch: _m[(classid) | (quality << 10)] = handler function.
+      // Each handler is small → TurboFan eligible.
+      this.buildFlatDispatch(plan.classidGroups, mqSources);
+
+      if (plan.classidGroups.size > 0) {
+        body.push(varDecl('const', [{
+          id: '_v',
+          init: memberComputed(ident('_m'), bin('|', ident('_c'), bin('<<', ident('_q'), literal(10)))),
+        }]));
+        body.push(ifStmt(ident('_v'), [
+          varDecl('const', [{ id: '_r2', init: call(ident('_v'), [ident('i'), ident('_id')]) }]),
+          ifStmt(ident('_r2'), [returnStmt(ident('_r2'))]),
+        ]));
+      }
+    } else {
+      // Switch dispatch: nested switch(_c) { switch(_q) { ... } }
+      body.push(varDecl('let', [{ id: '_r', init: literal(0) }]));
+      this.buildMergedSwitch(body, plan.classidGroups, ident('_c'), mqSources);
     }
 
-    // Type dispatch fallback (still switch-based, fewer entries)
+    // Type dispatch (switch-based)
     const typeBody: ESTree.Statement[] = [];
     this.buildMergedSwitch(typeBody, plan.typeGroups, ident('_t'), mqSources);
     if (typeBody.length > 0) body.push(...typeBody);
 
     // Catch-all rules
     if (plan.catchAll.length > 0) {
-      body.push(varDecl('let', [{ id: '_r', init: literal(0) }]));
+      if (useFlat) {
+        body.push(varDecl('let', [{ id: '_r', init: literal(0) }]));
+      }
       for (const rule of plan.catchAll) {
         body.push(...this.buildCheckRuleStmts(rule, mqSources, false));
       }
-      body.push(ifStmt(ident('_r'), [returnStmt(ident('_r'))]));
+      if (useFlat) {
+        body.push(ifStmt(ident('_r'), [returnStmt(ident('_r'))]));
+      }
     }
 
-    body.push(returnStmt(literal(0)));
+    body.push(returnStmt(useFlat ? literal(0) : ident('_r')));
     return fnDecl('_ci', ['i', '_id'], body);
   }
 
