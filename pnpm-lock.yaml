@@ -10,6 +10,9 @@ importers:
 
   packages/compiler:
     dependencies:
+      '@blizzhackers/d2-data':
+        specifier: workspace:*
+        version: link:../d2-data
       escodegen:
         specifier: ^2.1.0
         version: 2.1.0
@@ -29,6 +32,12 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/d2-data:
+    devDependencies:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

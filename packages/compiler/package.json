@@ -80,6 +80,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
+    "@blizzhackers/d2-data": "workspace:*",
     "escodegen": "^2.1.0"
   }
 }

@@ -1,0 +1,46 @@
+{
+  "name": "@blizzhackers/d2-data",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Diablo 2 game data — item types, stats, unique items, set items, and alias maps",
+  "license": "MIT",
+  "homepage": "https://github.com/blizzhackers/nip-compiler/tree/main/packages/d2-data",
+  "bugs": "https://github.com/blizzhackers/nip-compiler/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blizzhackers/nip-compiler.git",
+    "directory": "packages/d2-data"
+  },
+  "keywords": ["diablo2", "d2", "game-data", "items", "stats", "d2bs"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./aliases": {
+      "types": "./dist/aliases.d.ts",
+      "import": "./dist/aliases.js"
+    },
+    "./type-map": {
+      "types": "./dist/type-map.d.ts",
+      "import": "./dist/type-map.js"
+    },
+    "./unique-items": {
+      "types": "./dist/unique-items.d.ts",
+      "import": "./dist/unique-items.js"
+    },
+    "./set-items": {
+      "types": "./dist/set-items.d.ts",
+      "import": "./dist/set-items.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

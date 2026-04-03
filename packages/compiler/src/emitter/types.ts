@@ -1,17 +1,6 @@
 import { ExprNode, NipLineNode } from '../types.js';
-
-export interface AliasMapSet {
-  classId: Record<string, number>;
-  type: Record<string, number>;
-  quality: Record<string, number>;
-  flag: Record<string, number>;
-  stat: Record<string, number | [number, number]>;
-  color: Record<string, number>;
-  class: Record<string, number>;
-  typeToClassIds?: Record<number, number[]>;
-  classIdToType?: Record<number, number>;
-  typeProperties?: Record<number, { magic: boolean; rare: boolean; normal: boolean; charm: boolean }>;
-}
+import type { AliasMapSet } from '@blizzhackers/d2-data';
+export type { AliasMapSet } from '@blizzhackers/d2-data';
 
 export enum DispatchKind {
   Classid = 'classid',
