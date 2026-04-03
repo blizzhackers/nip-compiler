@@ -42,6 +42,22 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/d2-items:
+    dependencies:
+      '@blizzhackers/d2-data':
+        specifier: workspace:*
+        version: link:../d2-data
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/web:
     dependencies:
       '@blizzhackers/nip-compiler':

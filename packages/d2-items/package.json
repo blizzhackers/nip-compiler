@@ -1,0 +1,36 @@
+{
+  "name": "@blizzhackers/d2-items",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Diablo 2 item interface with TypedArray-backed stat access for high-performance item evaluation",
+  "license": "MIT",
+  "homepage": "https://github.com/blizzhackers/nip-compiler/tree/main/packages/d2-items",
+  "bugs": "https://github.com/blizzhackers/nip-compiler/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blizzhackers/nip-compiler.git",
+    "directory": "packages/d2-items"
+  },
+  "keywords": ["diablo2", "d2", "items", "typed-array", "performance", "d2bs"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx --test 'src/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@blizzhackers/d2-data": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
